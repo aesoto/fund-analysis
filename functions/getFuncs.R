@@ -7,7 +7,8 @@ getData <- function(date, isTesting) {
   fundData <- getBenchAllocations(fundData, datasources)
   accounts <- getAccountsData(datasources, fundData, FoFTypes)
   etfData <- getETFData(datasources)
-  benchmarks <- getBenchmarksData(datasources, fundData, etfData)
+  futuresBenchmarks <- getFuturesBenchmarks(datasources) # the futures benchmarks are in addition to account benchmarks
+  benchmarks <- getBenchmarksData(datasources, fundData, etfData, futuresBenchmarks)
   countryData <- getCountryData(datasources)
   addlCountryData <- getAddlCountryData(datasources)
   addlCompanyData <- getAddlCompanyData(datasources)
@@ -50,14 +51,15 @@ getSources <- function(date) {
                                   'AddlCompanyData',
                                   'etfData',
                                   'futuresData',
-                                  'benchmarkKeys'),
+                                  'benchmarkKeys',
+                                  'futuresBenchmarks'),
                         FilePath=c(paste0(data.path, 'EPN_MVF Map/Archive/'),
                                    paste0(data.path, 'Parent Fund Attribution/Archive/'),
                                    paste0(data.path, 'Parent Fund Attribution/Archive/'),
                                    paste0(data.path, 'Parent Fund Attribution/Archive/'),
                                    paste0(data.path, 'Parent Fund Attribution/Archive/'),
                                    paste0(data.path, 'InvestOne_&_Aladdin Combined Reports/Archive/'),
-                                   rep(metadata.path, 7)
+                                   rep(metadata.path, 8)
                         ),
                         FileName=c(paste0(mapDate, '_EPN_MVF_Map.csv'),
                                    paste0(reportDate, '_EPN_Attribution.csv'),
@@ -71,7 +73,8 @@ getSources <- function(date) {
                                    'Addl Company Data.csv',
                                    'etfData.csv',
                                    'futuresData.csv',
-                                   'benchmark Key Data.csv'))
+                                   'benchmark Key Data.csv',
+                                   'futuresBenchmarks.csv'))
   return(sources)
 }
 
@@ -172,6 +175,15 @@ getAddlCompanyData <- function(datasources) {
   colnames(addlCompanyData)[colnames(addlCompanyData)=='GICS_1'] <- 'AddlGICS_1'
   colnames(addlCompanyData)[colnames(addlCompanyData)=='GICS_2'] <- 'AddlGICS_2'
   return(addlCompanyData)
+}
+
+getFuturesBenchmarks <- function(datasources) {
+  filename <- paste0(datasources$FilePath[datasources$DataCat=='futuresBenchmarks'], datasources$FileName[datasources$DataCat=='futuresBenchmarks'])
+  futuresBenchmarks <- read.csv(filename, stringsAsFactors = FALSE)
+  names(futuresBenchmarks)[1] <-'Futures'
+  futuresBenchmarks <-futuresBenchmarks[!map_lgl(futuresBenchmarks, ~all(is.na(.)))]
+  futuresBenchmarks <- futuresBenchmarks[complete.cases(futuresBenchmarks),]
+  return(futuresBenchmarks)
 }
 
 getETFData <- function(datasources) {
