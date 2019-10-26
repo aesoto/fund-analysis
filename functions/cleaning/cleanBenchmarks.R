@@ -1,6 +1,6 @@
 # functions for cleaning benchmarks
 
-cleanBenchmarksData <- function(benchmarksData, fundsData, countryData, addlCountryData, addlCompanyData, benchmarkKeys) {
+cleanBenchmarksData <- function(benchmarksData, fundsData, countryData, addlCountryData, addlCompanyData, benchmarkKeys, futuresData) {
   result <- list()
   benchmarks <- unique(benchmarksData$Fund)
   for(benchmark in benchmarks) {
@@ -26,6 +26,7 @@ cleanBenchmark <- function(benchmark, benchmarkData, benchmarkKeys, countryData,
   benchmarkData <- removeBenchmarkNoise(benchmark, benchmarkData, benchmarkKeys)
   benchmarkData <- parseBenchmark(benchmarkData, benchmark, countryData, addlCountryData, addlCompanyData)
   benchmarkData <- setBenchmarkReturns(benchmark, benchmarkData, benchmarkKeys, reportedRet, reportedNMV)
+  return(benchmarkData)
 }
 
 parseBenchmark <- function(benchmarkData, benchmark, countryData, addlCountryData, addlCompanyData) {
@@ -33,6 +34,7 @@ parseBenchmark <- function(benchmarkData, benchmark, countryData, addlCountryDat
   benchmarkData <- sortBenchmark(benchmarkData)
   benchmarkData <- fillBenchmarkCompanyData(benchmarkData, addlCompanyData)
   benchmarkData <- setBenchmarkLevels(benchmarkData, countryData)
+  return(benchmarkData)
 }
 
 getBenchmarkReturn <- function(benchmark, benchmarksData, benchmarkKeys) {
