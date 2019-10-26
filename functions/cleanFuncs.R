@@ -15,7 +15,7 @@ cleanData <- function(rawData) {
   benchmarkKeys <- rawData$benchmarkKeys
   
   benchmarks <- cleanBenchmarksData(benchmarksData, fundsData, countryData, addlCountryData,
-                                    addlCompanyData, benchmarkKeys)
+                                    addlCompanyData, benchmarkKeys, futuresData)
   accounts <- cleanAccountsData(accountsData, fundsData, countryData, addlCountryData, 
                                 addlCompanyData, benchmarks, investments, etfData, futuresData)  
   cleanedData <- list(funds=fundsData,
