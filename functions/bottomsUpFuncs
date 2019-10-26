@@ -1,0 +1,361 @@
+getBottomsUp <- function(preparedData, isGeometric) {
+  output <- createAttribution(preparedData, isGeometric)
+  return(output)
+}
+
+createAttribution <- function(preparedData, isGeometric) {
+  results <- list()
+  metrics <- data.frame()
+  for(account in names(preparedData)) {
+    accountPacket <- preparedData[[account]]
+    fundMV <- accountPacket$NAV
+    panel <- accountPacket$Panel
+    adjmts <- accountPacket$adjmts
+    adjmtsItems <- adjmts$Items
+    adjmtsItems <- fillLevels(adjmtsItems)
+    adjmtsEffect <- sum(adjmtsItems$TotPctCont)
+    priceAdjmntsEffect <- as.numeric(accountPacket$priceAdjmnts$priceEffect)
+    priceAdjItems <- accountPacket$priceAdjmnts$priceAdjItems # Levels need to be filled out, per panel algorithm
+    priceAdjItems <- fillLevels(priceAdjItems)
+    priceAdjDetails <- accountPacket$priceAdjmnts$priceAdjDetails # Levels need to be filled out, per panel algorithm
+    priceAdjDetails <- data.frame(priceAdjDetails, stringsAsFactors = FALSE)
+    priceAdjDetails <- fillLevels(priceAdjDetails)
+    priceAdjDetails <- priceAdjDetails %>% select_if(~sum(!is.na(.)) > 0)
+    totals <- panel[panel$Level0 == 'Total',]
+    #####################    
+    attribPanel <- makeAttributionPanel(panel)
+    
+    
+    
+    
+    attribPanel <- addAdjustments(attribPanel, adjmtsEffect, priceAdjmntsEffect, totals, fundMV)
+    #attribPanel <- applyPriceAdjmts(attribPanel, priceAdjDetails) # adds other level data
+    
+    #attribPanel <- addPriceAdjItems(attribPanel, priceAdjItems) # adds selection level
+    
+    attribPanel <- addOtherAdjItems(attribPanel, adjmtsItems)
+    attribPanel <- fillColumns(attribPanel)
+    
+    dolAttribPanel <- getDollarPanel(attribPanel, fundMV)
+    
+    if(isGeometric) { attribPanel <- addGeometric(attribPanel) }
+    
+    finalPanel <- mergePanels(attribPanel, dolAttribPanel)
+    finalPanel <- cleanFinalPanel(finalPanel)
+    finalPanel <- formatPanel(finalPanel)
+    
+    tempMetrics <- data.frame(account=account,
+                              NAV=finalPanel$NAV[1],
+                              targetBasis=finalPanel$basis[1],
+                              gap=finalPanel$gap[1],
+                              basisVal=finalPanel$basisVal[1],
+                              gapVal=finalPanel$gapVal[1],
+                              PctExplained=finalPanel$actvRet[1]/finalPanel$basis[1]
+    )
+    
+    metrics <- rbind(metrics, tempMetrics)
+    
+    tempData <- list(account=account, 
+                     finalPanel=finalPanel,
+                     attribPanel=attribPanel, 
+                     dolAttribPanel=dolAttribPanel,
+                     fundMV=fundMV,
+                     adjmts=adjmts,
+                     priceAdjmnts=accountPacket$priceAdjmnts
+    )
+    
+    results[[account]] <- tempData
+  }
+  print(metrics)
+  results[['metrics']] <- metrics
+  #print(summary(gaps))
+  return(results)
+}
+
+makeAttributionPanel <- function(panel) {
+  levels <- panel %>% dplyr::select(starts_with('Level'))
+  levelnames <- names(levels)
+  #levelnames <- append(levelnames, 'Aladdin ID')
+  #levelnames <- append(levelnames, 'Sec_Des')
+  levelnames <- levelnames[levelnames!='Level0']
+  
+  levels <- length(levelnames) 
+  
+  
+  temp <- panel
+  totals <- temp[temp$Level0=='Total',]
+  temp <- temp[!temp$Level0=='Total',]
+  temp$Level0 <- NULL
+  
+  temp1 <- temp %>%
+    mutate(PortRet= ifelse(PortWt==0, BenchRet, PortRet)) %>%
+    mutate(BenchRet= ifelse(BenchWt==0, PortRet, BenchRet))
+  
+  temp1 <- temp1[temp1$`Aladdin ID`!='',]
+  
+  temp1$Allocation <- (temp1$PortWt - temp1$BenchWt) * temp1$BenchRet
+  temp1$SelectionAttr <- (temp1$PortRet - temp1$BenchRet) * temp1$PortWt
+  
+  temp1$PortWt <- NULL
+  temp1$BenchWt <- NULL
+  temp1$PortRet <- NULL
+  temp1$BenchRet <- NULL
+  
+  totals$Allocation <- sum(temp1$Allocation)
+  totals$SelectionAttr <- sum(temp1$SelectionAttr)
+  
+  result <- data.frame(stringsAsFactors = FALSE)
+  for(i in 1:length(levelnames)) {
+    currentlevel <- levelnames[i]
+    if(i == 1) {
+      temp <- temp1 %>% 
+        group_by(!! rlang::sym(currentlevel)) %>%
+        summarise(Allocation = sum(Allocation), SelectionAttr = sum(SelectionAttr)) 
+      temp <- data.frame(temp, stringsAsFactors = FALSE)
+      result <- rbind(result, temp, fill = TRUE)
+    } else {    
+      currentlevels <- levelnames[1:i]
+      temp <- temp1 %>% 
+        group_by(!!! rlang::syms(currentlevels)) %>%
+        summarise(Allocation = sum(Allocation), SelectionAttr = sum(SelectionAttr))
+      temp <- data.frame(temp, stringsAsFactors = FALSE)
+      result <- bind_rows(result, temp)
+    }  
+  }
+  result$`Aladdin ID` <- NA
+  result$Sec_Des <- NA
+  
+  temp1 <- rbind(temp1, result)
+  
+  temp1 <- temp1 %>% 
+    mutate_if(is.character,~ ifelse(is.na(.), '', .))
+  levelnames <- append(levelnames, 'Aladdin ID')
+  levelnames <- append(levelnames, 'Sec_Des')
+  temp1 <- temp1 %>% arrange(.dots =!!! rlang::syms(levelnames))
+  
+  
+  tempPanel <- panel[panel$Level0!='Total',]
+  result <- tempPanel %>%
+    left_join(temp1, by=levelnames)
+  
+  attribPanel <- rbind(totals, result)
+  
+  return(attribPanel)
+}
+
+addAdjustments <- function(attribPanel, adjmtsEffect, priceAdjmntsEffect, totals, fundMV) {
+  adjmts <- adjmtsEffect
+  
+  levels <- totals %>% dplyr::select(starts_with('Level'))
+  levelnames <- names(levels)
+  levelnames <- append(levelnames, 'Selection')
+  levels <- length(levelnames)-1
+  levelnames <- levelnames[1:(levels+1)]
+  
+  tempTotNames <- levelnames[1:(length(levelnames)-1)]
+  tempTotNames <- append(tempTotNames, 'Aladdin ID')
+  tempTotNames <- append(tempTotNames, 'Sec_Des')
+  
+  tempTotals <- totals[,c(tempTotNames, 'PortRet', 'BenchRet')]
+  colnames(tempTotals)[colnames(tempTotals)=='PortRet'] <- 'AttribCTR'
+  colnames(tempTotals)[colnames(tempTotals)=='BenchRet'] <- 'benchRet'
+  
+  portRet <- tempTotals$AttribCTR + adjmts
+  
+  tempTotals$AttribCTR <- portRet - adjmts# + priceAdjmntsEffect
+  tempTotals$basis <- tempTotals$AttribCTR[1] - tempTotals$benchRet[1]
+  setnames(tempTotals, old='Level0', new='NAV')
+  tempTotals$NAV <- fundMV
+  
+  #portRet <- tempTotals$AttribRet + priceAdjmnts + adjmts
+  
+  portDF <- data.frame(PortfolioCTR=portRet,
+                       otherAdj=-adjmts#,
+                       #priceAdj=priceAdjmntsEffect
+  )
+  portDFnames <- names(portDF)
+  
+  attrNames <- c('Allocation', 'SelectionAttr')
+  attribTotals <- attribPanel[,attrNames]
+  attribTotals <- attribTotals %>% summarise_all(sum) / (levels+1)
+  totActvRet <- rowSums(attribTotals)[1]  #formerly totalAttrib
+  tempTotals <- cbind(tempTotals, attribTotals)
+  attrBasis <- totActvRet#-priceAdjmnts#+adjmts
+  
+  
+  subTot <- data.frame(actvRet=totActvRet,
+                       #priceAdj=-priceAdjmnts,
+                       #otherAdj=adjmts,
+                       #attrBasis=attrBasis,
+                       gap=tempTotals$basis - attrBasis)
+  tempTotals <- cbind(tempTotals, subTot)
+  
+  tempTotNames <- replace(tempTotNames, tempTotNames=='Level0', 'NAV')
+  temp1 <- tempTotals[, names(tempTotals) %in% tempTotNames]
+  temp2 <- tempTotals[, !names(tempTotals) %in% tempTotNames]
+  
+  weightItems <- totals[,c('PortWt', 'BenchWt', 'PortRet', 'BenchRet')]
+  
+  temp1 <- cbind(temp1, weightItems)
+  tempTotals <- cbind(temp1, portDF)
+  tempTotals <- cbind(tempTotals, temp2)
+  #colnames(tempTotals)[colnames(tempTotals)=='Aladdin ID'] <- 'Selection'
+  
+  attribPanel <- attribPanel[!attribPanel$Level0=='Total',]
+  tempTotals$Level0 <- 'Total'
+  attribPanel <- rbind(setDT(attribPanel), setDT(tempTotals), fill=TRUE)
+  
+  total <- attribPanel[attribPanel$Level0=='Total',]
+  attribPanel <- attribPanel[!attribPanel$Level0=='Total',]
+  attribPanel <- rbind(total, attribPanel)
+  
+  
+  attribPanel$benchRet <- attribPanel$BenchRet * attribPanel$BenchWt
+  
+  colnames(attribPanel)[colnames(attribPanel)=='benchRet'] <- 'BenchCTR'  ######
+  #attribNames <- names(attribPanel)
+  #attribNames <- attribNames[c(1:12, 12:13, 11, 14:ncol(attribPanel))]
+  #attribPanel <- attribPanel %>% select(attribNames)
+  
+  attribPanel$PortfolioCTR1 <- attribPanel$PortWt * attribPanel$PortRet
+  attribPanel <- attribPanel %>%
+    select(NAV, everything())
+  attribPanel <- subset(attribPanel, select=c(NAV:otherAdj, PortfolioCTR1, AttribCTR:gap))
+  attribPanel <- subset(attribPanel, select=c(NAV:BenchRet, PortfolioCTR:basis, Allocation, SelectionAttr, actvRet:gap))
+  
+  
+  attribPanel[is.na(attribPanel)] <- 0
+  
+  colnames(attribPanel)[colnames(attribPanel)=='Aladdin ID'] <- 'Selection'
+  
+  return(attribPanel)
+}
+
+addOtherAdjItems <- function(attribPanel, adjmtsItems) {
+  levels <- attribPanel %>% 
+    dplyr::select(starts_with('Level'))
+  levelnames <- names(levels)
+  levels <- length(levelnames) / 2
+  levelnames <- levelnames[1:levels]
+  
+  temp <- adjmtsItems %>%
+    mutate(`Aladdin ID`= ifelse(`Aladdin ID`=='', ID, `Aladdin ID`))
+  temp <- temp %>%
+    select('Aladdin ID', Sec_Des, TotPctCont)
+  colnames(temp)[colnames(temp)=='TotPctCont'] <- 'tempOtherAdj'
+  colnames(temp)[colnames(temp)=='Aladdin ID'] <- 'Selection'
+  colnames(temp)[colnames(temp)=='Sec_Des'] <- 'tempSec_Des'
+  #tempColNames <- c(levelnames, 'Aladdin ID', 'Sec_Des', 'otherAdj')
+  #temp <- temp[,c(tempColNames)]
+  temp$tempOtherAdj <- temp$tempOtherAdj * -1
+  #if(levels==4) { temp$Level5 <- NULL }
+  
+  attribPanel <- attribPanel %>% full_join(temp, by='Selection')
+  attribPanel <- attribPanel %>%
+    mutate(otherAdj= if_else(!is.na(tempOtherAdj), tempOtherAdj, otherAdj)) %>%
+    mutate(Sec_Des= if_else(!is.na(tempSec_Des), tempSec_Des, Sec_Des))
+  attribPanel$tempOtherAdj <- NULL
+  attribPanel$tempSec_Des <- NULL
+  #attribPanel <- rbind(setDT(attribPanel), setDT(temp), fill=TRUE)
+  attribPanel <- attribPanel %>% arrange(.dots = !!! rlang::syms(c(levelnames, 'Selection')))
+  
+  
+  
+  
+  attribPanel <- attribPanel %>%
+    drop_na(Selection)
+  #
+  
+  attribPanel <- attribPanel %>% 
+    mutate_if(is.character,~ ifelse(is.na(.), '', .))
+  total <- attribPanel[attribPanel$Level0=='Total',]
+  #total <- total[complete.cases(total),]
+  attribPanel <- attribPanel[!attribPanel$Level0=='Total',]
+  attribPanel <- rbind(total, attribPanel)
+  
+  attribPanel <- attribPanel %>% 
+    mutate_if(is.numeric,~ ifelse(is.na(.), 0, .))
+  
+  
+  attribPanel <- attribPanel[complete.cases(attribPanel),]
+  
+  return(attribPanel)
+}
+
+fillColumns <- function(attribPanel) {
+  totals <- head(attribPanel,1)
+  attribPanel <- attribPanel[-1,]
+  
+  attribPanel$PortfolioCTR1[is.na(attribPanel$PortfolioCTR1)] <- 0
+  attribPanel$PortfolioCTR <- attribPanel$PortfolioCTR1 - attribPanel$otherAdj
+  
+  #attribPanel$priceAdj[is.na(attribPanel$priceAdj)] <- 0
+  attribPanel$AttribCTR <- attribPanel$PortfolioCTR1# + attribPanel$priceAdj
+  
+  
+  #attribPanel[is.na(attribPanel$OfficialCTR)] <- 0
+  #attribPanel[is.na(attribPanel$OfficialCTR)] <- 0
+  
+  attribPanel$basis <- attribPanel$AttribCTR - attribPanel$BenchCTR
+  
+  attribPanel$BenchCTR[is.na(attribPanel$BenchCTR)] <- 0
+  attribPanel$basis[is.na(attribPanel$basis)] <- 0
+  
+  #attribPanel$PortfolioRet <- (attribPanel$PortRet * attribPanel$PortWt) - attribPanel$otherAdj
+  #attribPanel$AttribRet <- (attribPanel$PortRet * attribPanel$PortWt) + attribPanel$priceAdj
+  #attribPanel$basis <- attribPanel$AttribRet - (attribPanel$BenchRet * attribPanel$BenchWt)
+  attribPanel$actvRet <- attribPanel$Allocation + attribPanel$SelectionAttr
+  #attribPanel$gap <- attribPanel$Level1Attr + attribPanel$Level2Attr + attribPanel$Level3Attr +
+  #attribPanel$Level4Attr + attribPanel$Level5Attr + attribPanel$SelectionAttr - attribPanel$actvRet
+  
+  
+  attribPanel <- rbind(totals, attribPanel)
+  
+  return(attribPanel)
+}
+
+getDollarPanel <- function(attribPanel, fundMV) {
+  # clear out chr columns, multiply by scalar, put back chr columns....
+  # or multiply by scalar on condition of being num....
+  levels <- attribPanel%>% dplyr::select(starts_with('Level'))
+  levelnames <- names(levels)
+  levels <- length(levelnames)
+  levelnames <- levelnames[1:levels]
+  
+  temp <- attribPanel %>% 
+    mutate_if(is.numeric,~ ifelse(is.na(.), 0, . * fundMV))
+  temp$PortWt <- NULL
+  temp$BenchWt <- NULL
+  temp$PortRet <- NULL
+  temp$BenchRet <- NULL
+  
+  temp$NAV[1] <- fundMV
+  temp <- temp %>%
+    #mutate_if(is.numeric,~ sprintf(.,fmt='%#.2f'))
+    mutate_if(is.numeric,~ round(.,2))
+  temp <- temp %>%
+    rename_at(vars(-c('NAV', levelnames, 'Selection', 'Sec_Des')), ~ paste0(.,'Val'))
+  temp$NAV <- as.numeric(temp$NAV)
+  #temp <- temp %>%
+  #mutate(NAV= ifelse(NAV==0, NA, NAV))
+  return(temp)
+}
+
+mergePanels <- function(attribPanel, dolAttribPanel) {
+  levels <- attribPanel %>% 
+    dplyr::select(starts_with('Level'))
+  levelnames <- names(levels)
+  levels <- length(levelnames) 
+  levelnames <- levelnames[1:levels]
+  
+  if(attribPanel$NAV[1] != dolAttribPanel$NAV[1]) { dolAttribPanel$NAV[1] <- attribPanel$NAV[1] }
+  
+  attribPanel <- attribPanel %>% 
+    mutate_if(is.numeric,~ ifelse(is.na(.), 0, .))
+  
+  
+  
+  result <- attribPanel %>%
+    full_join(dolAttribPanel, by=c('NAV', levelnames, 'Selection', 'Sec_Des'))
+  return(result)
+}
