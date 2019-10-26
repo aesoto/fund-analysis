@@ -90,16 +90,11 @@ mapOptions <- function(accountData, benchmarks, addlCountryData, addlCompanyData
   
   if(nrow(allOptions) != nrow(tempOptions)) { print('There is a non-SPX Option. Must be re-categorized') }
   
-  options <- options[!duplicated(options),]
-  dupes <- dupes[!duplicated(dupes),]
+  # remove options from accountData
+  accountData <- accountData[!(accountData$Sec_Group=='OPTION' & accountData$Sec_Type=='EQUITY'),]
   
-  # remove just your selected options from accountData
-  accountData <- rbind(accountData, dupes)
-  accountData <- accountData[!(duplicated(accountData) | duplicated(accountData, fromLast = TRUE)), ]
-  #accountData <- accountData[!duplicated(accountData,fromLast = FALSE) & !duplicated(accountData,fromLast = TRUE),] 
-  
-  # consolidate indexFutures
-  options <- consolidateOptions(options)
+  # consolidate options
+  options <- consolidateOptions(allOptions)
   
   NMV <- options$`BOD NMV`[1]
   NMVPct <- options$NMVPct[1]
@@ -160,7 +155,6 @@ mapOptions <- function(accountData, benchmarks, addlCountryData, addlCompanyData
   accountData <- rbind(accountData, tempBenchData)
   return(accountData)
 }
-
 
 
 # ############################  
@@ -1011,18 +1005,18 @@ addDerivativeAdjustments <- function(derivativeAdjustments, adjustments) {
   return(adjustments)
 }
 
-optionsAdjustment <- function(accountData){
-  # remove options, calculate metadata, return, adjust....
-  startNMV <- sum(accountData$`BOD NMV`)
-  options <- accountData[(accountData$Sec_Group=='OPTION' & accountData$Sec_Type=='EQUITY'),]
-  accountData <- accountData[!(accountData$Sec_Group=='OPTION' & accountData$Sec_Type=='EQUITY'),]
-  #NMVChange <- sum(options$<DeltaAdjustedNMV>) - sum(options$`BOD NMV`)
-  #options$`BOD NMV` <- options$<DeltaAdjustedNMV>
-  accountData <- rbind(accountData, options)
-  endNMV <- startNMV + NMVChange
-  accountData$NMVPct <- accountData$`BOD NMV` / endNMV
-  return(accountData)
-}
+# optionsAdjustment <- function(accountData){
+#  # remove options, calculate metadata, return, adjust....
+#  startNMV <- sum(accountData$`BOD NMV`)
+#  options <- accountData[(accountData$Sec_Group=='OPTION' & accountData$Sec_Type=='EQUITY'),]
+#  accountData <- accountData[!(accountData$Sec_Group=='OPTION' & accountData$Sec_Type=='EQUITY'),]
+#  #NMVChange <- sum(options$<DeltaAdjustedNMV>) - sum(options$`BOD NMV`)
+#  #options$`BOD NMV` <- options$<DeltaAdjustedNMV>
+#  accountData <- rbind(accountData, options)
+#  endNMV <- startNMV + NMVChange
+#  accountData$NMVPct <- accountData$`BOD NMV` / endNMV
+#  return(accountData)
+#}
 
 consolidateOptions <- function(options){
   optionPosition <- options[1,]
