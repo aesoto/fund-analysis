@@ -7,11 +7,11 @@ source(here('functions', 'attribFuncs.R'))
 source(here('functions', 'saveFuncs.R'))
 
 main <- function() {
-  isTesting <- FALSE
-  isGeometric <- TRUE
+  #isTesting <- FALSE
+  #isGeometric <- TRUE
   #date <- getDate()
   input <- getInputs()
-  rawData <- getData(date, isTesting)
+  rawData <- getData(input)
   cleanedData <- cleanData(rawData)
   preparedData <- prepData(cleanedData)
   output <- getAttribution(preparedData, isGeometric)
