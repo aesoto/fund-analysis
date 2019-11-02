@@ -1,6 +1,6 @@
 getData <- function(input) {
-  isTesting <- inputs$isTesting
-  schema <- intputs$schema
+  isTesting <- input$isTesting
+  schema <- input$schema
   
   
   FoFTypes <- c('EPN', 'MRF', 'MVF', 'USFF')
