@@ -1,4 +1,8 @@
-getData <- function(date, isTesting) {
+getData <- function(input) {
+  isTesting <- inputs$isTesting
+  schema <- intputs$schema
+  
+  
   FoFTypes <- c('EPN', 'MRF', 'MVF', 'USFF')
   datasources <- getSources(date)
   fundData <- getFundsData(datasources, isTesting)
