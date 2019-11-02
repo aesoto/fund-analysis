@@ -3,6 +3,8 @@ getData <- function(input) {
   schema <- input$schema
   date <- input$date
   
+  dataFields <- setDataFields(schema)
+  
   FoFTypes <- c('EPN', 'MRF', 'MVF', 'USFF')
   datasources <- getSources(date)
   fundData <- getFundsData(datasources, isTesting)
@@ -118,6 +120,7 @@ mergeAUMData <- function(fundData, AUMs) {
   return(mergedData)
 }
 
+# now set up getAccountsData to accept dataFields, also the reference to this function upstairs
 getAccountsData <- function(datasources, fundData, FoFTypes) {
   accountsData <- data.frame(stringsAsFactors = FALSE)
   for(fundType in FoFTypes) {
@@ -125,6 +128,11 @@ getAccountsData <- function(datasources, fundData, FoFTypes) {
     tempData <- fread(filename, select = c('Parent_ID', 'Fund', 'ID', 'Aladdin ID', 'Total_%Cont',
                                            'BOD NMV', 'Ret', 'Sec_Des', 'Sec_Group', 'Sec_Type',
                                            'GICS_1', 'GICS_2', 'Country'), stringsAsFactors = FALSE)
+    # new version will look like this:
+     tempData <- fread(filename, select = dataFields, stringsAsFactors = FALSE)
+    
+    
+    
     setnames(tempData, old=c('Total_%Cont'), new=c('TotPctCont'))
     tempData$TotPctCont <- as.numeric(gsub('%', '', tempData$TotPctCont))
     tempData$Country <- as.character(tempData$Country)
@@ -234,3 +242,12 @@ getBenchmarkKeys <- function(datasources) {
   benchmarkKeys <- benchmarkKeys[complete.cases(benchmarkKeys),]
   return(benchmarkKeys)
 }
+
+setDataFields <- function(schema) {
+  # read the schema, determine data fields
+  dataFields <- c('Fund', 'Aladdin ID', 'Sec_Des', 'Ret_Cont', 'Ret', <something>, <something else>, <etc.>,
+                  # certainly remove below if you don't need.... but keep NMV, NNV% as they are not descriptive data variables                             
+                  'Sec_Group', 'Sec_Type', 'GICS_1', 'GICS_2',
+                                               'Country', 'NMV', 'NMV%')
+  return(dataFields)
+  }
