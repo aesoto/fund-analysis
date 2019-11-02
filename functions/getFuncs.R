@@ -1,7 +1,7 @@
 getData <- function(input) {
   isTesting <- input$isTesting
   schema <- input$schema
-  
+  date <- input$date
   
   FoFTypes <- c('EPN', 'MRF', 'MVF', 'USFF')
   datasources <- getSources(date)
