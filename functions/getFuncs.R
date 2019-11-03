@@ -1,7 +1,7 @@
 getData <- function(input) {
   isTesting <- input$isTesting
-  schema <- input$schema
   date <- input$date
+  schema <- input$schema
   
   dataFields <- setDataFields(schema)
   
@@ -11,10 +11,10 @@ getData <- function(input) {
   AUMs <- getAUMs(datasources, fundData)
   fundData <- mergeAUMData(fundData, AUMs)
   fundData <- getBenchAllocations(fundData, datasources)
-  accounts <- getAccountsData(datasources, fundData, FoFTypes)
+  accounts <- getAccountsData(datasources, fundData, FoFTypes, dataFields)
   etfData <- getETFData(datasources)
   futuresBenchmarks <- getFuturesBenchmarks(datasources) # the futures benchmarks are in addition to account benchmarks
-  benchmarks <- getBenchmarksData(datasources, fundData, etfData, futuresBenchmarks)
+  benchmarks <- getBenchmarksData(datasources, fundData, etfData, futuresBenchmarks, dataFields)
   countryData <- getCountryData(datasources)
   addlCountryData <- getAddlCountryData(datasources)
   addlCompanyData <- getAddlCompanyData(datasources)
@@ -121,18 +121,16 @@ mergeAUMData <- function(fundData, AUMs) {
 }
 
 # now set up getAccountsData to accept dataFields, also the reference to this function upstairs
-getAccountsData <- function(datasources, fundData, FoFTypes) {
+getAccountsData <- function(datasources, fundData, FoFTypes, dataFields) {
   accountsData <- data.frame(stringsAsFactors = FALSE)
   for(fundType in FoFTypes) {
     filename <- paste0(datasources$FilePath[datasources$DataCat==fundType], datasources$FileName[datasources$DataCat==fundType])
-    tempData <- fread(filename, select = c('Parent_ID', 'Fund', 'ID', 'Aladdin ID', 'Total_%Cont',
-                                           'BOD NMV', 'Ret', 'Sec_Des', 'Sec_Group', 'Sec_Type',
-                                           'GICS_1', 'GICS_2', 'Country'), stringsAsFactors = FALSE)
+    #tempData <- fread(filename, select = c('Parent_ID', 'Fund', 'ID', 'Aladdin ID', 'Total_%Cont',
+    #                                       'BOD NMV', 'Ret', 'Sec_Des', 'Sec_Group', 'Sec_Type',
+    #                                       'GICS_1', 'GICS_2', 'Country'), stringsAsFactors = FALSE)
     # new version will look like this:
-     tempData <- fread(filename, select = dataFields, stringsAsFactors = FALSE)
-    
-    
-    
+    tempData <- fread(filename, select = c('Parent_ID', 'ID', 'Total %Cont',
+                                           'BOD NMV', dataFields), stringsAsFactors = FALSE)
     setnames(tempData, old=c('Total_%Cont'), new=c('TotPctCont'))
     tempData$TotPctCont <- as.numeric(gsub('%', '', tempData$TotPctCont))
     tempData$Country <- as.character(tempData$Country)
@@ -145,16 +143,18 @@ getAccountsData <- function(datasources, fundData, FoFTypes) {
   return(accountsData)
 }
 
-getBenchmarksData <- function(datasources, fundData, etfData) {
+getBenchmarksData <- function(datasources, fundData, etfData, dataFields) {
   filename <- paste0(datasources$FilePath[datasources$DataCat=='Benchmarks'], datasources$FileName[datasources$DataCat=='Benchmarks'])
   benchmarks <- as.vector(as.matrix(fundData[,c('Benchmark1', 'Benchmark2', 'Benchmark3')]))
   etfBenchmarks <- as.vector(etfData$Benchmark)
   benchmarks <- c(benchmarks, etfBenchmarks)
   benchmarks <- benchmarks[benchmarks!='']
   benchmarks <- unique(benchmarks)
-  benchmarksData <- fread(filename, select = c('Fund', 'Aladdin ID', 'Sec_Des', 'Ret_Cont', 'Ret',
-                                               'Sec_Group', 'Sec_Type', 'GICS_1', 'GICS_2',
-                                               'Country', 'NMV', 'NMV%'), stringsAsFactors = FALSE)
+  #benchmarksData <- fread(filename, select = c('Fund', 'Aladdin ID', 'Sec_Des', 'Ret_Cont', 'Ret',
+  #                                             'Sec_Group', 'Sec_Type', 'GICS_1', 'GICS_2',
+  #                                             'Country', 'NMV', 'NMV%'), stringsAsFactors = FALSE)
+  
+  benchmarksData <- fread(filename, select = c('Ret Cont',dataFields), stringsAsFactors = FALSE)
   benchmarksData <- filter(benchmarksData, Fund %in% c(benchmarks))
   setnames(benchmarksData, old=c('NMV%'), new=c('NMVPct'))
   benchmarksData$Fund <- as.character(benchmarksData$Fund)
@@ -245,9 +245,10 @@ getBenchmarkKeys <- function(datasources) {
 
 setDataFields <- function(schema) {
   # read the schema, determine data fields
-  dataFields <- c('Fund', 'Aladdin ID', 'Sec_Des', 'Ret_Cont', 'Ret', <something>, <something else>, <etc.>,
-                  # certainly remove below if you don't need.... but keep NMV, NNV% as they are not descriptive data variables                             
-                  'Sec_Group', 'Sec_Type', 'GICS_1', 'GICS_2',
-                                               'Country', 'NMV', 'NMV%')
+  dataFields <- unique(c('Fund', 'Aladdin ID', 'Sec_Des', 'Ret', input$schema[,3], 
+                  input$schema[,4], input$schema[,5],'Country', 'NMV', 'NMV%'))
+  dataFields<-dataFields[dataFields != "DM/EM"]
+  dataFields<- dataFields[dataFields != "Continent"]
+  
   return(dataFields)
   }
