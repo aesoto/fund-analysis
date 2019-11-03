@@ -1,61 +1,3 @@
-library(tcltk2)
-filename <-"C:\\UpWork\\Data Analytics for Investment Portfolio\\Schema Summary.csv"
-schemaData <- as.matrix(fread(filename))
-
-#R function browser() halts execution and invokes an environment browser when it is called. 
-#You can put browser() anywhere in your code to stop at that point in the code for debugging
-
-for (i in 1:ncol(schemaData)){
-  #R function debug() allows user to step through execution of a function, line by line. 
-  #At any point, we can print out values of variables or produce a graph of results in the function.
-  #While debugging, we can simply type "c" to continue to the end of the current section of code.
-  
-  debug(askSchema)
-  browser()
-  askSchema <- function(userInputLevel){       
-    uniqueLevel <- unique(as.character(strsplit(schemaData[,i], ",")),FALSE)
-    inputLevel <- as.array(uniqueLevel)
-    
-  for (j in 1:length(inputLevel)){
-    userInputLevel <- as.character(inputLevel[j])
-    response <- tkmessageBox(
-      message = paste0('Is your choice ', userInputLevel, '?'), 
-      icon="question", 
-      type = "yesno") 
-      #default = "yes")
-
-    if (as.character(response)[1]=="yes") {
-      continue = FALSE 
-      break()
-    }
-    
-    if (as.character(response)[1]=="no") {
-      continue = TRUE 
-    } 
-
-  }
-    
-    browser()
-    userInputLevel <- as.array(userInputLevel)
-    #return(userInputLevel)
-    
-    browser()
-    debug(getSchema)
-    schema <- getSchema(userInputLevel)
-
-  }
- 
- getSchema <- function(userInputLevel){
-  
-  setInputLevel <- userInputLevel
-  schemaData<-as.data.frame(schemaData)
-  schema <- dplyr::filter(schemaData, grepl(setInputLevel,inputLevel))
-  schemaData<-as.matrix(schemaData)
-  return(schema)
-  
- }
- 
-  
 # Pasting version from our dicussion today, 10/31/2019
   
   askUS <- function() { return(readline(prompt='Choose US Equity schema: '))}
@@ -65,102 +7,75 @@ askBond <- function() { return(readline(prompt='Choose bond schema: '))}
 getSchema <- function() {
   #filename <-"C:\\UpWork\\Data Analytics for Investment Portfolio\\Schema Summary.csv"
   #schemaData <- as.matrix(fread(filename))
-  schemas <- data.frame(AssetClass=c('US Equity', 'US Equity', 'Intl Equity', 'Intl Equity', 'Intl Equity', 'Bonds', 'Bonds'),
-                        Schema=c('GICS', 'MktCap', 'Country', 'GICS_1', 'MktCap', 'assetType','Duration'))
+  schemas <- data.frame(AssetClass=c('US Equity', 'US Equity', 'US Equity', 'Intl Equity', 'Intl Equity', 'Intl Equity', 'Bonds', 'Bonds'),
+                        Schema=c('GICS','MktCap','Country', 'Country', 'GICS', 'MktCap', 'AssetType','Duration'))
   
-  print(schemas)
+  #print(schemas)
   
   USschema <- askUS()
   intlSchema <- askIntl()
   bondSchema <- askBond()
   
-  US <- data.frame(stringsAsFactors = FALSE)
-  if(USschema=='GICS') { 
-    US$Level1 <- 'Equity'
-    US$Level2 <- 'GICS_1'
-    US$Level3 <- 'GICS_2'
-    # etc.
-  } else if (USschema=='MktCap') {
-    US$Level2 <- 'MktCap'
-    #etc
+  #Default schema for US Equity
+  if(USschema=='GICS') {
+    #print(USschema)
+    US <- data.frame(Level1='Equity', Level2='US',Level3='GICS_1',
+                     Level4='GICS_2',Level5='GICS_2',Level6='Selection',
+                     stringsAsFactors = FALSE)
+  } 
+  #Alternative schema for US Equity
+  if (USschema=='Mkt_Cap') {
+    US <- data.frame(Level1='Equity', Level2='US',Level3='US',
+                     Level4='Mkt_Cap',Level5='Mkt_Cap',Level6='Selection',
+                     stringsAsFactors = FALSE)
+  } 
+  #Alternative schema for US Equity
+  if (USschema=='Country') {
+    US <- data.frame(Level1='Equity', Level2='US',Level3='US',
+                     Level4='GICS_1',Level5='GICS_2',Level6='Selection',
+                     stringsAsFactors = FALSE)
   }
-  intl <- data.frame(stringsAsFactors = FALSE)
+  #Default schema for International Equity
   if(intlSchema=='Country') {
-    #define data frame
-  } else if (intlSchema=='GICS')  # 3 choices in intl
-  
-  # other asset class designations - bonds are left
-
-  bonds <- data.frame(stringsAsFactors = FALSE)
-  #if statements to define bond schema line
-  
+    intl <- data.frame(Level1='Equity', Level2='International',Level3='DM/EM',
+                     Level4='Continent',Level5='Country',Level6='Selection',
+                     stringsAsFactors = FALSE)
+  } 
+  #Alternative schema for International Equity
+  if (intlSchema=='GICS'){
+    intl <- data.frame(Level1='Equity', Level2='International',Level3='DM/EM',
+                       Level4='GICS_1',Level5='GICS_2',Level6='Selection',
+                       stringsAsFactors = FALSE)
+  } 
+  #Alternative schema for International Equity
+  if (intlSchema=='Mkt_Cap'){
+    intl <- data.frame(Level1='Equity', Level2='International',Level3='DM/EM',
+                       Level4='Mkt_Cap',Level5='Mkt_Cap',Level6='Selection',
+                       stringsAsFactors = FALSE)  
+  }
+  #Default schema for Fixed Income
+  if(bondSchema=='AssetType') {
+    bonds<- data.frame(Level1='Fixed Income', Level2='Fixed Income',Level3='Sec_Group',
+                       Level4='Sec_Type',Level5='Sec_Type',Level6='Selection',
+                       stringsAsFactors = FALSE)   
+  }
+  #Alternative schema for Fixed Income
+  if(bondSchema=='Duration') {
+    bonds<- data.frame(Level1='Fixed Income', Level2='Fixed Income',Level3='Dur',
+                       Level4='Dur',Level5='Dur',Level6='Selection',
+                       stringsAsFactors = FALSE)  
+  }
   schema <- rbind(US, intl)
-  schema <- rbind(schema, bond)
+  schema <- rbind(schema, bonds)
   
-  # schema is now a dataframe with 3 rows.  1st row is the US equity schema, 2nd row intl, 3rd is bond
+  # schema is now a dataframe with 3 rows; one row is the US Equity schema, a 2nd row is the Intl Equity schema, and 3rd row is FI schema
   
+  print(schema)
   return(schema)
-}
-
-
-
-
-
-#R function browser() halts execution and invokes an environment browser when it is called. 
-#You can put browser() anywhere in your code to stop at that point in the code for debugging
-
-for (i in 1:ncol(schemaData)){
-  #R function debug() allows user to step through execution of a function, line by line. 
-  #At any point, we can print out values of variables or produce a graph of results in the function.
-  #While debugging, we can simply type "c" to continue to the end of the current section of code.
-  
-  debug(askSchema)
-  browser()
-  askSchema <- function(userInputLevel){       
-    uniqueLevel <- unique(as.character(strsplit(schemaData[,i], ",")),FALSE)
-    inputLevel <- as.array(uniqueLevel)
-    
-    for (j in 1:length(inputLevel)){
-      userInputLevel <- as.character(inputLevel[j])
-      response <- tkmessageBox(
-        message = paste0('Is your choice ', userInputLevel, '?'), 
-        icon="question", 
-        type = "yesno") 
-      #default = "yes")
-      
-      if (as.character(response)[1]=="yes") {
-        continue = FALSE 
-        break()
-      }
-      
-      if (as.character(response)[1]=="no") {
-        continue = TRUE 
-      } 
-      
-    }
-    
-    browser()
-    userInputLevel <- as.array(userInputLevel)
-    #return(userInputLevel)
-    
-    browser()
-    debug(getSchema)
-    schema <- getSchema(userInputLevel)
-    
-  }
-  
-  getSchema <- function(userInputLevel){
-    
-    setInputLevel <- userInputLevel
-    schemaData<-as.data.frame(schemaData)
-    schema <- dplyr::filter(schemaData, grepl(setInputLevel,inputLevel))
-    schemaData<-as.matrix(schemaData)
-    return(schema)
-    
-  }
   
 }
 
-  
-}
+
+
+
 
