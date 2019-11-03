@@ -14,7 +14,6 @@ getInputs <- function () {
   
   schema <- getSchema()
   
-  #The line immediately below seems to serve no purpose.
   inputs <- list(date=date, schema=schema, isTesting=isTesting, isGeometric=isGeometric)
   
   return(inputs)
