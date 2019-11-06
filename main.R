@@ -1,7 +1,7 @@
 # Top Down Attribution - Funds
 # 7 August 2019
 
-attributionLibraries <- c('data.table', 'dplyr', 'tidyr', 'lubridate', 'purrr', 'bizdays', 'rowr', 'here', 'writexl', 'tcltk2')
+attributionLibraries <- c('data.table', 'dplyr', 'tidyr', 'lubridate', 'purrr', 'bizdays', 'rowr', 'here', 'writexl', 'tcltk2','XLConnect')
 lapply(attributionLibraries, require, character.only=TRUE)
 
 source(here('functions', 'mainFuncs.R'))
