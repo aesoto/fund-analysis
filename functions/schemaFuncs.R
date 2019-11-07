@@ -1,9 +1,6 @@
-# 11/6/2019 - I noticed that there is an offset of the levels that has to happen if
-# non-default options are selected.  So I handled it this way.
-# Also, the saving of data needs to be modified if not default so the isDefault variable needs to tag along.
 askDefault <- function() { return(readline(prompt='Would you like to use the default schema (y/n)? '))}
-askEquity <- function() { return(readline(prompt='Choose Equity schema: '))}
-askBond <- function() { return(readline(prompt='Choose bond schema: '))}
+askEquity <- function() { return(readline(prompt='Choose number for Equity schema: '))}
+askBond <- function() { return(readline(prompt='Choose number for bond schema: '))}
 
 
 # askUS <- function() { return(readline(prompt='Choose US Equity schema: '))}
@@ -12,7 +9,7 @@ askBond <- function() { return(readline(prompt='Choose bond schema: '))}
 
 getSchema <- function() {
   schemas <- data.frame(Options=c('Default', 'Equity', 'Equity', 'Fixed Income', 'Fixed Income'),
-                        Schema=c('Default', 'GICS', 'Mkt Cap', 'Asset Type', 'Duration'))
+                        Schema=c('Default', 'GICS', 'Mkt_Cap', 'Asset Type', 'Dur'))
   
   #schemas <- data.frame(AssetClass=c('US Equity', 'US Equity', 'Intl Equity', 'Intl Equity', 'Intl Equity', 'Bonds', 'Bonds'),
   #                      Schema=c('GICS','MktCap','Country', 'GICS', 'MktCap', 'AssetType','Duration'),
@@ -22,28 +19,35 @@ getSchema <- function() {
   
   defaultAnswer <- askDefault()
   defaultAnswer <- tolower(defaultAnswer)
+  
+  isDefault <- TRUE
   if(defaultAnswer=='y') {
     USschema <- 'GICS1'
     intlSchema <- 'Country'
     bondSchema <- 'AssetType'
   } else {
+    isDefault <- FALSE
     equityAnswer <- askEquity()
     bondAnswer <- askBond()
     
-    equityAnswer <- tolower(equityAnswer)
-    bondAnswer <- tolower(bondAnswer)
+    #equityAnswer <- tolower(equityAnswer)
+    #bondAnswer <- tolower(bondAnswer)
     
-    if(equityAnswer=='gics') {
+    if(equityAnswer==2) {
       USschema <- 'GICS2'
       intlSchema <- 'GICS'
-    } else {
+    } else if (equityAnswer==3){
       USschema <- 'Mkt_Cap'
       intlSchema <- 'Mkt_Cap'
-    }
-    if(bondAnswer=='asset type') {
-      bondSchema <-'AssetType'
     } else {
+      print('Selection not valid.')
+    }
+    if(bondAnswer==4) {
+      bondSchema <-'AssetType'
+    } else if(bondAnswer==5){
       bondSchema <- 'Duration'
+    } else {
+      print('Selection not valid.')
     }
   }
   
@@ -54,7 +58,7 @@ getSchema <- function() {
   # Default schema for US Equity
   if(USschema=='GICS1') {
     #print(USschema)
-    US <- data.frame(AssetClass='US',Level1='Equity', Level2='US',Level3='GICs_1',
+    US <- data.frame(AssetClass='US',Level1='Equity', Level2='US',Level3='GICS_1',
                      Level4='GICS_2',Level5='GICS_2',Level6='Selection',
                      stringsAsFactors = FALSE)
   }
@@ -107,5 +111,6 @@ getSchema <- function() {
   # schema is now a dataframe with 3 rows;
   # row 1 is the US Equity schema, a 2nd row is the Intl Equity schema, and 3rd row is FI schema
   #print(schema)
-  return(schema)
+  schemaData <- list(isDefault=isDefault, schema=schema)
+  return(schemaData)
 }
