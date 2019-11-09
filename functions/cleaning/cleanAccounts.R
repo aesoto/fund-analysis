@@ -1,6 +1,7 @@
 # functions for cleaning accounts
 
-cleanAccountsData <- function(accountsData, fundsData, countryData, addlCountryData, addlCompanyData, benchmarks, investments, etfData, futuresData) {
+cleanAccountsData <- function(accountsData, fundsData, countryData, addlCountryData, addlCompanyData,
+                              benchmarks, investments, etfData, futuresData, schema) {
   supressWarnings <- FALSE
   result <- list()
   for(account in fundsData$Account) {
@@ -11,11 +12,14 @@ cleanAccountsData <- function(accountsData, fundsData, countryData, addlCountryD
     fundMV <- getAUM(account, fundsData)
     fundBenchData <- getFundBenchData(account, fundsData, benchmarks)
     accountData <- setAccountData(account, accountsData) # must be here as expense items are reconciled
-    adjustments <- setAdjustmentsData(accountData, countryData, addlCountryData, addlCompanyData, supressWarnings)
+    
+    # need to accommodate change of variables here....
+    adjustments <- setAdjustmentsData(accountData, countryData, addlCountryData, addlCompanyData,
+                                      supressWarnings, schema)
     
     accountData <- cleanAccount(account, accountData, fundMV, investments, 
                                 countryData, addlCountryData, addlCompanyData, etfData, benchmarks,
-                                futuresData, supressWarnings)
+                                futuresData, schema, supressWarnings)
     derivativeAdjustments <- getDerivativeAdjustments(accountData)
     accountData <- removeDerivativeAdjustments(accountData)
     adjustments <- addDerivativeAdjustments(derivativeAdjustments, adjustments)
@@ -37,34 +41,40 @@ setAccountData <- function(account, accountsData) {
   accountData <- getFundData(account, accountsData)
   accountData <- putIntoDecimal(account, accountData) # must be kept here so that adjustments are accurate
   # an options adjustment needs to be added here....the top line NMV will change....
-  accountData <- optionsAdjustment(account)
+  #accountData <- optionsAdjustment(account)
   
   return(accountData)
 }
 
-setAdjustmentsData <- function(accountData, countryData, addlCountryData, addlCompanyData, supressWarnings) {
+setAdjustmentsData <- function(accountData, countryData, addlCountryData, addlCompanyData,
+                               supressWarnings, schema) {
   adjustments <- getAdjustments(accountData)
-  adjustments <- parseAdjustments(adjustments, countryData, addlCountryData, addlCompanyData, supressWarnings)
+  adjustments <- parseAdjustments(adjustments, countryData, addlCountryData, addlCompanyData, supressWarnings,
+                                  schema)
   return(adjustments)
 }
 
 cleanAccount <- function(account, accountData, fundMV, investments, 
                          countryData, addlCountryData, addlCompanyData, etfData, benchmarks,
-                         futuresData, supressWarnings) {
+                         futuresData, schema, supressWarnings) {
   accountData <- removeFundNoise(accountData)
-  accountData <- parseAccount(accountData, investments, countryData, addlCountryData, addlCompanyData, etfData, benchmarks, futuresData, supressWarnings)
+  accountData <- parseAccount(accountData, investments, countryData, addlCountryData, addlCompanyData,
+                              etfData, benchmarks, futuresData, schema, supressWarnings)
   return(accountData)
 }
 
-parseAccount <- function(accountData, investments, countryData, addlCountryData, addlCompanyData, etfData, benchmarks, futuresData, supressWarnings, adjustments) {
+parseAccount <- function(accountData, investments, countryData, addlCountryData, addlCompanyData,
+                         etfData, benchmarks, futuresData, schema, supressWarnings
+                         #,adjustments
+) {
   accountData <- setMoneyMarket(accountData, investments) 
   accountData <- fillCountryData(accountData, addlCountryData, supressWarnings) # must be in this order to properly sort...
   accountData <- sortAssets(accountData)
-  accountData <- fillCompanyData(accountData, addlCompanyData, supressWarnings)
+  accountData <- fillCompanyData(accountData, addlCompanyData, supressWarnings, schema)
   
   accountData <- mapBonds(accountData)
   accountData <- consolidatePositions(accountData)
-  accountData <- setAccountLevels(accountData, countryData, supressWarnings)
+  accountData <- setAccountLevels(accountData, countryData, schema, supressWarnings)
   # map futures and ETFs
   accountData <- mapETFs(accountData, etfData, benchmarks, addlCountryData, addlCompanyData, supressWarnings)
   accountData <- mapIndexFutures(accountData, futuresData, benchmarks, addlCountryData, addlCompanyData, supressWarnings)
@@ -144,8 +154,8 @@ mapOptions <- function(accountData, benchmarks, addlCountryData, addlCompanyData
   adjustmentData$Sec_Des <- paste0(adjustmentData$Sec_Des, ' - Options Adjustment')
   adjustmentData$Ret <- 0
   adjustmentData$NMVPct <- 0
-  adjustmentData$GICS_1 <- NA
-  adjustmentData$GICS_2 <- NA
+  #adjustmentData$GICS_1 <- NA
+  #adjustmentData$GICS_2 <- NA
   
   tempBenchData <- rbind(setDT(tempBenchData), setDT(adjustmentData), fill=TRUE)
   
@@ -155,6 +165,7 @@ mapOptions <- function(accountData, benchmarks, addlCountryData, addlCompanyData
   accountData <- rbind(accountData, tempBenchData)
   return(accountData)
 }
+
 
 
 # ############################  
@@ -283,7 +294,6 @@ setFundReturns <- function(accountData, fundMV) {
   colnames(accountData)[colnames(accountData)=='BOD NMV'] <- 'BOD_NMV'
   totalNMV <- sum(accountData$BOD_NMV) 
   
-  # you are here.....
   # Goal: calculate a return that is internally consistent with the portfolio, may be used for price adjustment later
   accountData$impliedRet <- accountData$TotPctCont * totalNMV / accountData$BOD_NMV 
   
@@ -293,28 +303,56 @@ setFundReturns <- function(accountData, fundMV) {
   
   #marginPct <- 1 - totalNMV/fundMV
   marginBal <- fundMV - totalNMV
-  marginData <- data.table(Parent_ID=account,
-                           Fund=account,
-                           ID='Margin',
-                           'Aladdin ID'='Margin',
-                           Sec_Des='Margin as Plug',
-                           Sec_Group='Margin',
-                           Sec_Type='Margin',
-                           GICS_1='Margin',
-                           GICS_2='Margin',
-                           Country='Margin',
-                           assetClass='Other',
-                           Level1='Other',
-                           Level2='Margin',
-                           Level3='Margin',
-                           Level4='Margin',
-                           Level5='Margin',
-                           BOD_NMV=marginBal,
-                           Ret=0,
-                           NMVPct=marginBal/fundMV,
-                           TotPctCont=0,
-                           impliedRet=0
-  )
+  
+  # add a row to accountData....
+  
+  marginData <- tail(accountData, 1)
+  
+  marginData <- marginData %>% 
+    mutate_if(is.character,~ ifelse(.!='', '', .))
+  marginData <- marginData %>% 
+    mutate_if(is.numeric,~ ifelse(.!=0, 0, .))
+  
+  marginData$Parent_ID <- account
+  marginData$Fund <- account
+  marginData$ID <- account
+  marginData$'Aladdin ID' <- 'Margin'
+  marginData$Sec_Des <- 'Margin as Plug'
+  marginData$assetClass <- 'Other'
+  marginData$Level1='Other'
+  marginData$Level2='Margin'
+  marginData$Level3='Margin'
+  marginData$Level4='Margin'
+  marginData$Level5='Margin'
+  marginData$BOD_NMV=marginBal
+  marginData$Ret=0
+  marginData$NMVPct=marginBal/fundMV
+  marginData$TotPctCont=0
+  marginData$impliedRet=0
+  
+  
+  # marginData <- data.table(Parent_ID=account,
+  #                          Fund=account,
+  #                          ID='Margin',
+  #                          'Aladdin ID'='Margin',
+  #                          Sec_Des='Margin as Plug',
+  #                          Sec_Group='Margin',
+  #                          Sec_Type='Margin',
+  #                          GICS_1='Margin',
+  #                          GICS_2='Margin',
+  #                          Country='Margin',
+  #                          assetClass='Other',
+  #                          Level1='Other',
+  #                          Level2='Margin',
+  #                          Level3='Margin',
+  #                          Level4='Margin',
+  #                          Level5='Margin',
+  #                          BOD_NMV=marginBal,
+  #                          Ret=0,
+  #                          NMVPct=marginBal/fundMV,
+  #                          TotPctCont=0,
+  #                          impliedRet=0
+  # )
   accountData$NMVPct <- accountData$BOD_NMV / fundMV
   
   #accountData$impliedRet2 <- accountData$Ret_Cont / accountData$NMVPct
@@ -345,7 +383,7 @@ getAdjustments <- function(accountData) {
   return(adjustments)
 }
 
-parseAdjustments <- function(adjustments, countryData, addlCountryData, addlCompanyData, supressWarnings) {
+parseAdjustments <- function(adjustments, countryData, addlCountryData, addlCompanyData, supressWarnings, schema) {
   adjEffect <- adjustments$Effect
   adjItems <- adjustments$Items
   temp <- adjItems %>% group_by(ID) %>% summarize(ConslTotPctCont=sum(TotPctCont))
@@ -358,131 +396,48 @@ parseAdjustments <- function(adjustments, countryData, addlCountryData, addlComp
   
   adjItems <- fillCountryData(adjItems, addlCountryData, supressWarnings) # must be in this order to properly sort...
   adjItems <- sortAssets(adjItems)
-  adjItems <- fillCompanyData(adjItems, addlCompanyData, supressWarnings)
+  adjItems <- fillCompanyData(adjItems, addlCompanyData, supressWarnings, schema)
   #adjItems <- consolidatePositions(adjItems)
-  adjItems <- setAdjustmentLevels(adjItems, countryData, supressWarnings)
+  adjItems <- setAdjustmentLevels(adjItems, countryData, schema, supressWarnings)
   
   adjustments <- list(Items=adjItems, Effect=adjEffect)
   return(adjustments)
 }
 
-setAccountLevels <- function(accountData, countryData, supressWarnings) {
-  assetClasses <- c('intl', 'US', 'bond', 'Other')
+setAccountLevels <- function(accountData, countryData, schema, supressWarnings) {
+  assetClasses <- c('intl', 'US', 'bond', 'Other') # keeping this here for reference
   
-  #result <- data.frame()
-  for(class in assetClasses) {
-    if(class=='intl') {
-      temp <- accountData %>% 
-        filter(assetClass==class) %>% 
-        select('Aladdin ID', Country)
-      temp <- merge(x = temp, y = countryData,
-                    by.x = 'Country', by.y = 'CountryCd',
-                    all.x = TRUE)
-      temp$Country <- NULL
-      
-      if(!supressWarnings) {
-        missing <- temp[is.na(temp$Level1),]
-        if(nrow(missing)>0) {
-          print('The following are missing country attribution data')
-          print('Update the countryData file if needed.')
-        }
-      }
-      temp$Level1[is.na(temp$Level1)] <- 'Other'
-      temp$Level2[is.na(temp$Level2)] <- 'Other'
-      temp$Level3[is.na(temp$Level3)] <- 'Other'
-      
-      colnames(temp)[colnames(temp)=='Level3'] <- 'Level5'
-      colnames(temp)[colnames(temp)=='Level1'] <- 'Level3'
-      colnames(temp)[colnames(temp)=='Level2'] <- 'Level4'
-      if(nrow(temp) > 0) {
-        temp$Level1 <- 'Equity'
-        temp$Level2 <- 'Intl'
-      }
-      temp <- temp %>%
-        mutate(Level1 = ifelse(Level3=='Other', 'Other', Level1)) %>%
-        mutate(Level2 = ifelse(Level3=='Other', 'Other', Level2))
-      temp <- temp[c('Aladdin ID', 'Level1', 'Level2', 'Level3', 'Level4', 'Level5')]
-      
-      accountData <- merge(x=accountData, y=temp,
-                           by.x='Aladdin ID', by.y='Aladdin ID',
-                           all.x=TRUE)
-    } else if (class=='US') {
-      accountData <- accountData %>%
-        mutate(Level1= ifelse((Country=='US' | Country=='PR'), 'Equity', Level1)) %>%
-        mutate(Level2= ifelse((Country=='US' | Country=='PR'), 'US', Level2)) %>%
-        mutate(Level3= ifelse((Country=='US' | Country=='PR'), GICS_1, Level3)) %>%
-        mutate(Level4= ifelse((Country=='US' | Country=='PR'), GICS_2, Level4))
-      
-      temp <- accountData %>% 
-        filter(assetClass==class) %>% 
-        select('Aladdin ID', Sec_Des, GICS_1, GICS_2)
-      
-      if(!supressWarnings) {
-        missing <- temp[(is.na(temp$GICS_1) | is.na(temp$GICS_2)),]
-        if(nrow(missing)>0) { 
-          print('The following are missing bond attribution data')
-          print('Update the core data file if needed.')
-        }
-      }
-    } else if (class=='bond') {
-      accountData <- accountData %>%
-        mutate(Level1= ifelse(assetClass=='bond', 'Fixed Income', Level1)) %>%
-        mutate(Level2= ifelse(assetClass=='bond', 'Fixed Income', Level2)) %>%
-        mutate(Level3= ifelse(assetClass=='bond', Sec_Group, Level3)) %>%
-        mutate(Level4= ifelse(assetClass=='bond', Sec_Type, Level4))
-      
-      temp <- accountData %>% 
-        filter(assetClass==class) %>% 
-        select('Aladdin ID', Sec_Des, Sec_Group, Sec_Type)
-      
-      if(!supressWarnings) {
-        missing <- temp[(is.na(temp$Sec_Group) | is.na(temp$Sec_Type)),]
-        if(nrow(missing)>0) { 
-          print('The following are missing bond attribution data')
-          print('Update the core data file if needed.')
-        }
-      }
-    } else if (class=='Other') {
-      accountData$Level1[accountData$assetClass=='Other' & accountData$Sec_Group != 'CASH'] <- 'Other'
-      accountData$Level2[accountData$assetClass=='Other' & accountData$Sec_Group != 'CASH'] <- 'Other'
-      accountData$Level3[accountData$assetClass=='Other' & accountData$Sec_Group != 'CASH'] <- 'Other'
-      accountData$Level4[accountData$assetClass=='Other' & accountData$Sec_Group != 'CASH'] <- 'Other'
-      
-      accountData <- accountData %>%
-        mutate(Level1= ifelse(Sec_Group=='CASH', 'Other', Level1)) %>%
-        mutate(Level2= ifelse(Sec_Group=='CASH', 'Cash', Level2)) %>%
-        mutate(Level3= ifelse(Sec_Group=='CASH', 'Cash', Level3)) %>%
-        mutate(Level4= ifelse(Sec_Group=='CASH', 'Cash', Level4))
-      
-      accountData <- accountData %>%
-        mutate(Level1= ifelse(Sec_Group=='CASH' & Sec_Type=='CASH', 'Other', Level1)) %>%
-        mutate(Level2= ifelse(Sec_Group=='CASH' & Sec_Type=='CASH', 'Cash', Level2)) %>%
-        mutate(Level3= ifelse(Sec_Group=='CASH' & Sec_Type=='CASH', 'Cash', Level3)) %>%
-        mutate(Level4= ifelse(Sec_Group=='CASH' & Sec_Type=='CASH', 'Cash', Level4))
-      
-      accountData <- accountData %>%
-        mutate(Level1= ifelse(Sec_Group=='FUND' & Sec_Type=='STIF', 'Other', Level1)) %>%
-        mutate(Level2= ifelse(Sec_Group=='FUND' & Sec_Type=='STIF', 'Cash', Level2)) %>%
-        mutate(Level3= ifelse(Sec_Group=='FUND' & Sec_Type=='STIF', 'Cash', Level3)) %>%
-        mutate(Level4= ifelse(Sec_Group=='FUND' & Sec_Type=='STIF', 'Cash', Level4))
-    }
-  }
+  result <- data.frame(stringsAsFactors = FALSE)
+  intlData <- setIntlLevels(accountData, countryData, schema, supressWarnings)
+  result <- intlData
+  USData <- setUSLevels(accountData, schema, supressWarnings)
+  if(nrow(result)==0) { result <- USData } else { result <- rbind(result, USData) }
+  bondData <- setBondLevels(accountData, schema, supressWarnings)
+  if(nrow(result)==0) { result <- bondData } else { result <- rbind(result, bondData) }
+  otherData <- setOtherLevels(accountData, supressWarnings)
+  result <- rbind(result, otherData)
   
-  accountData <- accountData %>%
-    mutate(Level5= ifelse(is.na(Level5), Level4, Level5))
+  totalNMV <- sum(result$`BOD NMV`)
+  result$NMVPct <- result$`BOD NMV` / totalNMV
   
-  totalNMV <- sum(accountData$`BOD NMV`)
-  accountData$NMVPct <- accountData$`BOD NMV` / totalNMV
-  
-  accountData <- accountData %>%
+  result <- result %>%
     select(Parent_ID, Fund, ID, everything())
-  accountData <- accountData %>%
+  result <- result %>%
     select(-'BOD NMV', -NMVPct, -Ret, everything())
-  accountData <- accountData %>%
-    select(-TotPctCont, everything())
-  
-  return(accountData)
+  result <- result %>%
+    select(-TotPctCont, everything()) 
+  return(result)
 }
+## clean up residual function language below....
+
+
+#  accountData <- accountData %>%
+#    mutate(Level5= ifelse(is.na(Level5), Level4, Level5))
+
+
+
+# return(accountData)
+#}
 
 
 setMoneyMarket <- function(accountData, investments) {
@@ -495,19 +450,44 @@ setMoneyMarket <- function(accountData, investments) {
       parentID <- accountData$Parent_ID[1]
       # print('Consolidating money market')
       # print(parentID)
-      tempDF <- data.frame(Parent_ID=parentID, 
-                           Fund=fund, ID='Money Market', 
-                           "Aladdin ID"='Money Market',
-                           TotPctCont=temp$TotPctCont[temp$Fund==fund], 
-                           "BOD NMV"=temp$`BOD NMV`[temp$Fund==fund], 
-                           Sec_Des='Money Market',
-                           Sec_Group='CASH', 
-                           Sec_Type='CASH', 
-                           GICS_1='Other', 
-                           GICS_2='Other', 
-                           Country='US', 
-                           Ret=0, 
-                           stringsAsFactors = FALSE)
+      
+      tempDF <- tail(accountData, 1)
+      
+      tempDF <- tempDF %>% 
+        mutate_if(is.character,~ ifelse(.!='', '', .))
+      tempDF <- tempDF %>% 
+        mutate_if(is.numeric,~ ifelse(.!=0, 0, .))
+      
+      tempDF$Parent_ID<-parentID 
+      tempDF$Fund<-fund 
+      tempDF$ID<-'Money Market' 
+      tempDF$`Aladdin ID`<-'Money Market'
+      tempDF$TotPctCont<-temp$TotPctCont[temp$Fund==fund]
+      tempDF$`BOD NMV`<-temp$`BOD NMV`[temp$Fund==fund]
+      tempDF$Sec_Des<-'Money Market'
+      tempDF$Sec_Group<-'CASH'
+      tempDF$Sec_Type<-'CASH' 
+      
+      tempDF$Country<-'US'
+      tempDF$Ret<-0
+      
+      
+      
+      
+      
+      # tempDF <- data.frame(Parent_ID=parentID, 
+      #                      Fund=fund, ID='Money Market', 
+      #                      "Aladdin ID"='Money Market',
+      #                      TotPctCont=temp$TotPctCont[temp$Fund==fund], 
+      #                      "BOD NMV"=temp$`BOD NMV`[temp$Fund==fund], 
+      #                      Sec_Des='Money Market',
+      #                      Sec_Group='CASH', 
+      #                      Sec_Type='CASH', 
+      #                      GICS_1='Other', 
+      #                      GICS_2='Other', 
+      #                      Country='US', 
+      #                      Ret=0, 
+      #                      stringsAsFactors = FALSE)
       colnames(tempDF)[colnames(tempDF)=='Aladdin.ID'] <- 'Aladdin ID'
       colnames(tempDF)[colnames(tempDF)=='BOD.NMV'] <- 'BOD NMV'
       accountData <- accountData[!accountData$Fund==fund,]
@@ -578,28 +558,36 @@ fillCountryData <- function(accountData, addlCountryData, supressWarnings) {
   return(accountData)
 }
 
-fillCompanyData <- function(accountData, addlCompanyData, supressWarnings) {
-  addlCompanyData <- addlCompanyData %>% select(AladdinID, AddlGICS_1, AddlGICS_2)
-  temp <- accountData[accountData$assetClass=='US',]
-  temp[is.na(temp)] <- ''
-  accountData <- accountData[!accountData$assetClass=='US',]
-  temp <- temp %>%
-    left_join (addlCompanyData, by=c('Aladdin ID'= 'AladdinID'))
-  temp <- temp %>%
-    mutate(GICS_1 = ifelse(GICS_1=='' & Sec_Group=='EQUITY', AddlGICS_1, GICS_1)) %>%
-    mutate(GICS_2 = ifelse(GICS_2=='' & Sec_Group=='EQUITY', AddlGICS_2, GICS_2))
-  temp$AddlGICS_1 <- NULL
-  temp$AddlGICS_2 <- NULL
-  
-  if(!supressWarnings) {
-    missing <- temp[(temp$GICS_1 == '' | temp$GICS_2 == ''),]
-    if(nrow(missing) > 0) {
-      print('The following US companies are missing GICS data.')
-      print(missing)
-      print('Update account addl company data file')
-    } 
+fillCompanyData <- function(accountData, addlCompanyData, supressWarnings, schema) {
+  if('GICS_1' %in% names(accountData) | 'GICS_2' %in% names(accountData)) {
+    addlCompanyData <- addlCompanyData %>% select(AladdinID, AddlGICS_1, AddlGICS_2)
+    if('GICS_1' %in% schema[schema$AssetClass=='US',] & 'GICS_1' %in% schema[schema$AssetClass=='intl',]) {
+      temp <- accountData[accountData$Sec_Group=='EQUITY',]
+      accountData <- accountData[!accountData$Sec_Group=='EQUITY',]
+    } else if ('GICS_1' %in% schema[schema$AssetClass=='US',]) {
+      temp <- accountData[accountData$assetClass=='US',]
+      accountData <- accountData[!accountData$assetClass=='US',]
+    }
+    temp[is.na(temp)] <- ''
+    
+    temp <- temp %>%
+      left_join (addlCompanyData, by=c('Aladdin ID'= 'AladdinID'))
+    temp <- temp %>%
+      mutate(GICS_1 = ifelse(GICS_1=='' & Sec_Group=='EQUITY', AddlGICS_1, GICS_1)) %>%
+      mutate(GICS_2 = ifelse(GICS_2=='' & Sec_Group=='EQUITY', AddlGICS_2, GICS_2))
+    temp$AddlGICS_1 <- NULL
+    temp$AddlGICS_2 <- NULL
+    
+    if(!supressWarnings) {
+      missing <- temp[(temp$GICS_1 == '' | temp$GICS_2 == ''),]
+      if(nrow(missing) > 0) {
+        print('The following US companies are missing GICS data.')
+        print(missing)
+        print('Update account addl company data file')
+      } 
+    }
+    accountData <- rbind(accountData, temp)
   }
-  accountData <- rbind(accountData, temp)
   return(accountData)
 }
 
@@ -677,7 +665,7 @@ mapETFs <- function(accountData, etfData, benchmarks, addlCountryData, addlCompa
     etfPlug <- totPctCont - sum(tempBenchData$Ret_Cont)
     
     tempBenchData$Parent_ID <- tempParent
-    tempBenchData$Fund <- tempFund
+    tempBenchData$Fund <- as.character(tempFund)
     
     tempBenchData <- tempBenchData %>%
       select(Fund, everything())
@@ -702,21 +690,26 @@ mapETFs <- function(accountData, etfData, benchmarks, addlCountryData, addlCompa
       select(Parent_ID, Fund, ID, everything())
     
     adjustmentData <- ETFs[ETFs$`Aladdin ID`==ETF,]
+    
+    
     adjustmentData$TotPctCont <- etfPlug
     adjustmentData$`BOD NMV` <- 0
     adjustmentData$Sec_Des <- paste0(adjustmentData$Sec_Des, ' - ETF Adjustment')
     adjustmentData$Ret <- 0
     adjustmentData$NMVPct <- 0
     adjustmentData$Index <- NULL
-    adjustmentData$GICS_1 <- NA
-    adjustmentData$GICS_2 <- NA
+    #adjustmentData$GICS_1 <- NA
+    #adjustmentData$GICS_2 <- NA
     
     tempBenchData <- rbind(setDT(tempBenchData), setDT(adjustmentData), fill=TRUE)
     
     mapData <- rbind(mapData, tempBenchData)
   }
-  mapData <- mapData %>%
-    mutate(ID= ifelse(is.na(ID), `Aladdin ID`, ID))
+  
+  if(nrow(mapData) > 0) {
+    mapData <- mapData %>%
+      mutate(ID= ifelse(is.na(ID), `Aladdin ID`, ID))
+  }
   
   accountData <- rbind(accountData, mapData)
   return(accountData)
@@ -725,6 +718,8 @@ mapETFs <- function(accountData, etfData, benchmarks, addlCountryData, addlCompa
 mapIndexFutures <- function(accountData, futuresData, benchmarks, addlCountryData, addlCompanyData, supressWarnings) {
   fundNMV <- sum(accountData$`BOD NMV`)
   benchmarkNames <- names(benchmarks)
+  #benchmarkNames <- c(benchmarkNames, futuresData$Index)
+  benchmarkNames <- unique(benchmarkNames)
   accountIDs <- accountData[,c('Aladdin ID', 'ID')]
   allFutures <- accountData[(accountData$Sec_Group=='FUTURE' & accountData$Sec_Type=='INDEX'),]
   
@@ -755,6 +750,7 @@ mapIndexFutures <- function(accountData, futuresData, benchmarks, addlCountryDat
   
   mapData <- data.frame(stringsAsFactors = FALSE)
   for(indexFuture in indexFutures$'Aladdin ID') {
+    print(indexFuture)
     NMV <- indexFutures$`BOD NMV`[indexFutures$`Aladdin ID`==indexFuture]
     NMVPct <- indexFutures$NMVPct[indexFutures$`Aladdin ID`==indexFuture]
     totPctCont <- indexFutures$TotPctCont[indexFutures$`Aladdin ID`==indexFuture]
@@ -809,8 +805,8 @@ mapIndexFutures <- function(accountData, futuresData, benchmarks, addlCountryDat
     adjustmentData$Ret <- 0
     adjustmentData$NMVPct <- 0
     adjustmentData$Index <- NULL
-    adjustmentData$GICS_1 <- NA
-    adjustmentData$GICS_2 <- NA
+    #adjustmentData$GICS_1 <- NA
+    #adjustmentData$GICS_2 <- NA
     
     tempBenchData <- rbind(setDT(tempBenchData), setDT(adjustmentData), fill=TRUE)
     
@@ -827,13 +823,19 @@ mapBonds <- function(accountData) {
   # quick patch to change LQD from an equity to Fixed Income
   LQD <- accountData[accountData$`Aladdin ID`=='464287242',]
   accountData <- accountData[!accountData$`Aladdin ID`=='464287242',]
-  if(nrow(LQD)>0) {
+  if(nrow(LQD)>0 & 'Sec_Type' %in% names(accountData)) {
     LQD$Sec_Group <- 'BND'
     LQD$Sec_Type <- 'CORP'
     LQD$Country <- 'US'
     LQD$assetClass <- 'bond'
     accountData <- rbind(accountData, LQD)
+  } else if(nrow(LQD)>0) {
+    LQD$Country <- 'US'
+    LQD$assetClass <- 'Other'
+    accountData <- rbind(accountData, LQD)
   }
+  
+  
   
   bondKeywords <- c('NOTE', 'BOND', 'T-BOND')
   bondFutures <- data.frame()
@@ -844,11 +846,36 @@ mapBonds <- function(accountData) {
   }
   bondFutures <- unique(bondFutures$`Aladdin ID`)
   
-  accountData <- accountData %>%
-    mutate(Sec_Group= ifelse(`Aladdin ID` %in% bondFutures, 'BND', Sec_Group)) %>%
-    mutate(Sec_Type= ifelse(`Aladdin ID` %in% bondFutures, 'GOVT', Sec_Type)) %>%
-    mutate(Country= ifelse(`Aladdin ID` %in% bondFutures, 'US', Country)) %>%
-    mutate(assetClass= ifelse(`Aladdin ID` %in% bondFutures, 'bond', assetClass))
+  
+  if('Sec_Type' %in% names(accountData)) {
+    accountData <- accountData %>%
+      mutate(Sec_Group= ifelse(`Aladdin ID` %in% bondFutures, 'BND', Sec_Group)) %>%
+      mutate(Sec_Type= ifelse(`Aladdin ID` %in% bondFutures, 'GOVT', Sec_Type)) %>%
+      mutate(Country= ifelse(`Aladdin ID` %in% bondFutures, 'US', Country)) %>%
+      mutate(assetClass= ifelse(`Aladdin ID` %in% bondFutures, 'bond', assetClass))
+  }
+  
+  if('Dur' %in% names(accountData)) {
+    bondFuturesData <- accountData[accountData$`Aladdin ID` %in% bondFutures,]
+    accountData <- accountData[!accountData$`Aladdin ID` %in% bondFutures,]
+    
+    missingDuration <- bondFuturesData[is.na(bondFuturesData$Dur),]
+    bondFuturesData <- bondFuturesData[!is.na(bondFuturesData$Dur),]
+    durations <- bondFuturesData[c('Aladdin ID', 'Dur')]
+    durations <- durations[complete.cases(durations),]
+    colnames(durations)[colnames(durations)=='Dur'] <- 'otherDuration'
+    missingDuration <- missingDuration %>%
+      left_join(durations, by='Aladdin ID')
+    missingDuration <- missingDuration[!duplicated(missingDuration),]
+    missingDuration <- missingDuration %>%
+      mutate(Dur= ifelse(is.na(Dur), otherDuration, 0))
+    missingDuration$otherDuration <- NULL
+    
+    bondFuturesData <- rbind(bondFuturesData, missingDuration)
+    bondFuturesData$assetClass <- 'bond'
+    
+    accountData <- rbind(accountData, bondFuturesData)
+  }
   return(accountData)
 }
 
@@ -884,98 +911,25 @@ tansformBenchmark <- function(benchmarks, tempBench, NMV, totPctCont) {
   return(tempBenchData)
 }
 
-setAdjustmentLevels <- function(adjItems, countryData, supressWarnings) {
-  assetClasses <- c('intl', 'US', 'bond', 'Other')
+setAdjustmentLevels <- function(adjItems, countryData, schema, supressWarnings) {
+  assetClasses <- c('intl', 'US', 'bond', 'Other') # leaving this for reference
   
-  #result <- data.frame()
-  for(class in assetClasses) {
-    if(class=='intl') {
-      temp <- adjItems %>% 
-        filter(assetClass==class) %>% 
-        select('Aladdin ID', Country)
-      temp <- merge(x = temp, y = countryData,
-                    by.x = 'Country', by.y = 'CountryCd',
-                    all.x = TRUE)
-      temp$Country <- NULL
-      
-      if(!supressWarnings) {
-        missing <- temp[is.na(temp$Level1),]
-        if(nrow(missing)>0) {
-          print('The following are missing country attribution data')
-          print('Update the countryData file if needed.')
-        }
-      }
-      temp$Level1[is.na(temp$Level1)] <- 'Other'
-      temp$Level2[is.na(temp$Level2)] <- 'Other'
-      temp$Level3[is.na(temp$Level3)] <- 'Other'
-      
-      colnames(temp)[colnames(temp)=='Level3'] <- 'Level5'
-      colnames(temp)[colnames(temp)=='Level1'] <- 'Level3'
-      colnames(temp)[colnames(temp)=='Level2'] <- 'Level4'
-      if(nrow(temp) > 0) {
-        temp$Level1 <- 'Equity'
-        temp$Level2 <- 'Intl'
-      }
-      temp <- temp %>%
-        mutate(Level1 = ifelse(Level3=='Other', 'Other', Level1)) %>%
-        mutate(Level2 = ifelse(Level3=='Other', 'Other', Level2))
-      temp <- temp[c('Aladdin ID', 'Level1', 'Level2', 'Level3', 'Level4', 'Level5')]
-      
-      adjItems <- merge(x=adjItems, y=temp,
-                        by.x='Aladdin ID', by.y='Aladdin ID',
-                        all.x=TRUE)
-    } else if (class=='US') {
-      adjItems <- adjItems %>%
-        mutate(Level1= ifelse((Country=='US' | Country=='PR'), 'Equity', Level1)) %>%
-        mutate(Level2= ifelse((Country=='US' | Country=='PR'), 'US', Level2)) %>%
-        mutate(Level3= ifelse((Country=='US' | Country=='PR'), GICS_1, Level3)) %>%
-        mutate(Level4= ifelse((Country=='US' | Country=='PR'), GICS_2, Level4))
-      
-      temp <- adjItems %>% 
-        filter(assetClass==class) %>% 
-        select('Aladdin ID', Sec_Des, GICS_1, GICS_2)
-      
-      if(!supressWarnings) {
-        missing <- temp[(is.na(temp$GICS_1) | is.na(temp$GICS_2)),]
-        if(nrow(missing)>0) { 
-          print('The following are missing bond attribution data')
-          print('Update the core data file if needed.')
-        }
-      }
-    } else if (class=='bond') {
-      adjItems <- adjItems %>%
-        mutate(Level1= ifelse(assetClass=='bond', 'Fixed Income', Level1)) %>%
-        mutate(Level2= ifelse(assetClass=='bond', 'Fixed Income', Level2)) %>%
-        mutate(Level3= ifelse(assetClass=='bond', Sec_Group, Level3)) %>%
-        mutate(Level4= ifelse(assetClass=='bond', Sec_Type, Level4))
-      
-      temp <- adjItems %>% 
-        filter(assetClass==class) %>% 
-        select('Aladdin ID', Sec_Des, Sec_Group, Sec_Type)
-      
-      if(!supressWarnings) {
-        missing <- temp[(is.na(temp$Sec_Group) | is.na(temp$Sec_Type)),]
-        if(nrow(missing)>0) { 
-          print('The following are missing bond attribution data')
-          print('Update the core data file if needed.')
-        }
-      }
-    } else if (class=='Other') {
-      adjItems$Level1[adjItems$assetClass=='Other'] <- 'Other'
-      adjItems$Level2[adjItems$assetClass=='Other'] <- 'Other'
-      adjItems$Level3[adjItems$assetClass=='Other'] <- 'Other'
-      adjItems$Level4[adjItems$assetClass=='Other'] <- 'Other'
-    }
-  }
+  result <- data.frame(stringsAsFactors = FALSE)
+  intlAdj <- setIntlAdj(adjItems, countryData, schema, supressWarnings)
+  result <- intlAdj
+  USAdj <- setUSAdj(adjItems, schema, supressWarnings)
+  if(nrow(result)==0) { result <- USAdj } else { result <- rbind(result, USAdj) }
+  bondAdj <- setBondAdj(adjItems, schema, supressWarnings)
+  if(nrow(result)==0) { result <- bondAdj } else { result <- rbind(result, bondAdj) }
+  otherAdj <- setOtherAdj(adjItems, supressWarnings)
+  result <- rbind(result, otherAdj)
   
-  adjItems <- adjItems %>%
-    mutate(Level5= ifelse(is.na(Level5), Level4, Level5))
-  
-  adjItems <- adjItems %>%
+  result <- result %>%
     select(-TotPctCont, everything())
   
-  return(adjItems)
+  return(result)
 }
+
 
 getDerivativeAdjustments <- function(accountData) {
   derivativeAdjustments <- accountData[accountData$'BOD NMV'==0,]
@@ -1006,17 +960,17 @@ addDerivativeAdjustments <- function(derivativeAdjustments, adjustments) {
 }
 
 # optionsAdjustment <- function(accountData){
-#  # remove options, calculate metadata, return, adjust....
-#  startNMV <- sum(accountData$`BOD NMV`)
-#  options <- accountData[(accountData$Sec_Group=='OPTION' & accountData$Sec_Type=='EQUITY'),]
-#  accountData <- accountData[!(accountData$Sec_Group=='OPTION' & accountData$Sec_Type=='EQUITY'),]
-#  #NMVChange <- sum(options$<DeltaAdjustedNMV>) - sum(options$`BOD NMV`)
-#  #options$`BOD NMV` <- options$<DeltaAdjustedNMV>
-#  accountData <- rbind(accountData, options)
-#  endNMV <- startNMV + NMVChange
-#  accountData$NMVPct <- accountData$`BOD NMV` / endNMV
-#  return(accountData)
-#}
+#   # remove options, calculate metadata, return, adjust....
+#   startNMV <- sum(accountData$`BOD NMV`)
+#   options <- accountData[(accountData$Sec_Group=='OPTION' & accountData$Sec_Type=='EQUITY'),]
+#   accountData <- accountData[!(accountData$Sec_Group=='OPTION' & accountData$Sec_Type=='EQUITY'),]
+#   #NMVChange <- sum(options$<DeltaAdjustedNMV>) - sum(options$`BOD NMV`)
+#   #options$`BOD NMV` <- options$<DeltaAdjustedNMV>
+#   accountData <- rbind(accountData, options)
+#   endNMV <- startNMV + NMVChange
+#   accountData$NMVPct <- accountData$`BOD NMV` / endNMV
+#   return(accountData)
+# }
 
 consolidateOptions <- function(options){
   optionPosition <- options[1,]
@@ -1024,6 +978,320 @@ consolidateOptions <- function(options){
   optionPosition$`BOD NMV`[1] <- sum(options$`BOD NMV`)
   optionPosition$TotPctCont[1] <- sum(options$TotPctCont)
   optionPosition$Ret[1] <- 0
-  optionPosition$NMVPct[1] <- sum(optionPosition$NMVPct)
+  optionPosition$NMVPct[1] <- sum(options$NMVPct)
   return(optionPosition)
+}
+
+setIntlLevels <- function(accountData, countryData, schema, supressWarnings) {
+  tempAccountData <- accountData[accountData$assetClass=='intl',]
+  #accountData <- accountData[accountData$assetClass!='intl',]
+  temp <- accountData %>% 
+    filter(assetClass=='intl') %>% 
+    select('Aladdin ID', Country)
+  temp <- merge(x = temp, y = countryData,
+                by.x = 'Country', by.y = 'CountryCd',
+                all.x = TRUE)
+  temp$Country <- NULL
+  
+  if(!supressWarnings) {
+    missing <- temp[is.na(temp$Level1),]
+    if(nrow(missing)>0) {
+      print('The following are missing country attribution data')
+      print('Update the countryData file if needed.')
+    }
+  }
+  temp$Level1[is.na(temp$Level1)] <- 'Other'
+  temp$Level2[is.na(temp$Level2)] <- 'Other'
+  temp$Level3[is.na(temp$Level3)] <- 'Other'
+  
+  colnames(temp)[colnames(temp)=='Level3'] <- 'Level5' # preserve this order
+  colnames(temp)[colnames(temp)=='Level1'] <- 'Level3'
+  colnames(temp)[colnames(temp)=='Level2'] <- 'Level4'
+  if(nrow(temp) > 0) {
+    temp$Level1 <- 'Equity'
+    temp$Level2 <- 'Intl'
+  }
+  temp <- temp %>%
+    mutate(Level1 = ifelse(Level3=='Other', 'Other', Level1)) %>%
+    mutate(Level2 = ifelse(Level3=='Other', 'Other', Level2))
+  temp <- temp[c('Aladdin ID', 'Level1', 'Level2', 'Level3', 'Level4', 'Level5')]
+  
+  tempAccountData <- merge(x=tempAccountData, y=temp,
+                           by.x='Aladdin ID', by.y='Aladdin ID',
+                           all.x=TRUE)
+  
+  if(schema$Level4[schema$AssetClass=='intl']=='Mkt_Cap') {
+    tempAccountData <- bucketMarketCap(tempAccountData)
+    tempAccountData$Level4 <- tempAccountData$Mkt_Cap
+    tempAccountData$Level5 <- tempAccountData$Mkt_Cap
+  } else if(schema$Level4[schema$AssetClass=='intl']=='GICS_1') {
+    tempAccountData$Level4 <- tempAccountData$GICS_1
+    tempAccountData$Level5 <- tempAccountData$GICS_2
+  }
+  return(tempAccountData)
+}
+
+setUSLevels <- function(accountData, schema, supressWarnings) {
+  tempAccountData <- accountData[accountData$assetClass=='US',]
+  
+  if(schema$Level3[schema$AssetClass=='US']=='GICS_1') {
+    tempAccountData <- tempAccountData %>%
+      mutate(Level1= ifelse((Country=='US' | Country=='PR'), 'Equity', Level1)) %>%
+      mutate(Level2= ifelse((Country=='US' | Country=='PR'), 'US', Level2)) %>%
+      mutate(Level3= ifelse((Country=='US' | Country=='PR'), GICS_1, Level3)) %>%
+      mutate(Level4= ifelse((Country=='US' | Country=='PR'), GICS_2, Level4))
+    tempAccountData$Level5 <- tempAccountData$Level4
+    
+    temp <- tempAccountData %>% 
+      select('Aladdin ID', Sec_Des, GICS_1, GICS_2)
+    
+    if(!supressWarnings) {
+      missing <- temp[(is.na(temp$GICS_1) | is.na(temp$GICS_2)),]
+      if(nrow(missing)>0) { 
+        print('The following are missing bond attribution data')
+        print('Update the core data file if needed.')
+      }
+    }
+  } else if(schema$Level4[schema$AssetClass=='US']=='GICS_1') { 
+    tempAccountData <- tempAccountData %>%
+      mutate(Level1= ifelse((Country=='US' | Country=='PR'), 'Equity', Level1)) %>%
+      mutate(Level2= ifelse((Country=='US' | Country=='PR'), 'US', Level2)) %>%
+      mutate(Level3= ifelse((Country=='US' | Country=='PR'), 'US', Level3)) %>%
+      mutate(Level4= ifelse((Country=='US' | Country=='PR'), GICS_1, Level4)) %>%
+      mutate(Level5= ifelse((Country=='US' | Country=='PR'), GICS_2, Level5))
+    
+    temp <- tempAccountData %>% 
+      select('Aladdin ID', Sec_Des, GICS_1, GICS_2)
+    
+    if(!supressWarnings) {
+      missing <- temp[(is.na(temp$GICS_1) | is.na(temp$GICS_2)),]
+      missing <- missing[!missing$`Aladdin ID`=='USD_CCASH',]
+      if(nrow(missing)>0) { 
+        print('The following are missing GICS data')
+        print('Update the core data file if needed.')
+        print(missing)
+      }
+    }
+  } else if (schema$Level4[schema$AssetClass=='US']=='Mkt_Cap') {
+    tempAccountData <- bucketMarketCap(tempAccountData)
+    tempAccountData <- tempAccountData %>%
+      mutate(Level1= ifelse((Country=='US' | Country=='PR'), 'Equity', Level1)) %>%
+      mutate(Level2= ifelse((Country=='US' | Country=='PR'), 'US', Level2)) %>%
+      mutate(Level3= ifelse((Country=='US' | Country=='PR'), 'US', Level3)) %>%
+      mutate(Level4= ifelse((Country=='US' | Country=='PR'), Mkt_Cap, Level4)) %>%
+      mutate(Level5= ifelse((Country=='US' | Country=='PR'), Mkt_Cap, Level5))
+  }
+  return(tempAccountData)
+}
+
+setBondLevels <- function(accountData, schema, supressWarnings) {
+  tempAccountData <- accountData[accountData$assetClass=='bond',]
+  
+  if(schema$Level3[schema$AssetClass=='bonds']=='Sec_Group') {
+    tempAccountData <- tempAccountData %>%
+      mutate(Level1= ifelse(assetClass=='bond', 'Fixed Income', Level1)) %>%
+      mutate(Level2= ifelse(assetClass=='bond', 'Fixed Income', Level2)) %>%
+      mutate(Level3= ifelse(assetClass=='bond', Sec_Group, Level3)) %>%
+      mutate(Level4= ifelse(assetClass=='bond', Sec_Type, Level4))
+    tempAccountData$Level5 <- tempAccountData$Level4
+    
+    
+    temp <- tempAccountData %>% 
+      select('Aladdin ID', Sec_Des, Sec_Group, Sec_Type)
+    
+    if(!supressWarnings) {
+      missing <- temp[(is.na(temp$Sec_Group) | is.na(temp$Sec_Type)),]
+      if(nrow(missing)>0) { 
+        print('The following are missing bond attribution data')
+        print('Update the core data file if needed.')
+      }
+    }
+  } else if (schema$Level3[schema$AssetClass=='bonds']=='Dur') {
+    tempAccountData <- bucketDuration(tempAccountData)
+    tempAccountData <- tempAccountData %>%
+      mutate(Level1= ifelse(assetClass=='bond', 'Fixed Income', Level1)) %>%
+      mutate(Level2= ifelse(assetClass=='bond', 'Fixed Income', Level2)) %>%
+      mutate(Level3= ifelse(assetClass=='bond', Dur, Level3)) %>%
+      mutate(Level4= ifelse(assetClass=='bond', Dur, Level4))
+    tempAccountData$Level5 <- tempAccountData$Level4
+  }
+  return(tempAccountData)
+}
+
+setOtherLevels <- function(accountData, supressWarnings) {
+  tempAccountData <- accountData[accountData$assetClass=='Other',]
+  
+  tempAccountData$Level1[tempAccountData$assetClass=='Other' & tempAccountData$Sec_Group != 'CASH'] <- 'Other'
+  tempAccountData$Level2[tempAccountData$assetClass=='Other' & tempAccountData$Sec_Group != 'CASH'] <- 'Other'
+  tempAccountData$Level3[tempAccountData$assetClass=='Other' & tempAccountData$Sec_Group != 'CASH'] <- 'Other'
+  tempAccountData$Level4[tempAccountData$assetClass=='Other' & tempAccountData$Sec_Group != 'CASH'] <- 'Other'
+  
+  tempAccountData <- tempAccountData %>%
+    mutate(Level1= ifelse(Sec_Group=='CASH', 'Other', Level1)) %>%
+    mutate(Level2= ifelse(Sec_Group=='CASH', 'Cash', Level2)) %>%
+    mutate(Level3= ifelse(Sec_Group=='CASH', 'Cash', Level3)) %>%
+    mutate(Level4= ifelse(Sec_Group=='CASH', 'Cash', Level4))
+  
+  tempAccountData <- tempAccountData %>%
+    mutate(Level1= ifelse(Sec_Group=='CASH' & Sec_Type=='CASH', 'Other', Level1)) %>%
+    mutate(Level2= ifelse(Sec_Group=='CASH' & Sec_Type=='CASH', 'Cash', Level2)) %>%
+    mutate(Level3= ifelse(Sec_Group=='CASH' & Sec_Type=='CASH', 'Cash', Level3)) %>%
+    mutate(Level4= ifelse(Sec_Group=='CASH' & Sec_Type=='CASH', 'Cash', Level4))
+  
+  tempAccountData <- tempAccountData %>%
+    mutate(Level1= ifelse(Sec_Group=='FUND' & Sec_Type=='STIF', 'Other', Level1)) %>%
+    mutate(Level2= ifelse(Sec_Group=='FUND' & Sec_Type=='STIF', 'Cash', Level2)) %>%
+    mutate(Level3= ifelse(Sec_Group=='FUND' & Sec_Type=='STIF', 'Cash', Level3)) %>%
+    mutate(Level4= ifelse(Sec_Group=='FUND' & Sec_Type=='STIF', 'Cash', Level4))
+  tempAccountData$Level5 <- tempAccountData$Level4
+  
+  return(tempAccountData)
+}
+
+setIntlAdj <- function(adjItems, countryData, schema, supressWarnings) {
+  tempAdjItems <- adjItems[adjItems$assetClass=='intl',]
+  
+  temp <- tempAdjItems %>% 
+    select('Aladdin ID', Country)
+  temp <- merge(x = temp, y = countryData,
+                by.x = 'Country', by.y = 'CountryCd',
+                all.x = TRUE)
+  temp$Country <- NULL
+  
+  if(!supressWarnings) {
+    missing <- temp[is.na(temp$Level1),]
+    if(nrow(missing)>0) {
+      print('The following are missing country attribution data')
+      print('Update the countryData file if needed.')
+    }
+  }
+  temp$Level1[is.na(temp$Level1)] <- 'Other'
+  temp$Level2[is.na(temp$Level2)] <- 'Other'
+  temp$Level3[is.na(temp$Level3)] <- 'Other'
+  
+  colnames(temp)[colnames(temp)=='Level3'] <- 'Level5' # preserve this order
+  colnames(temp)[colnames(temp)=='Level1'] <- 'Level3'
+  colnames(temp)[colnames(temp)=='Level2'] <- 'Level4'
+  if(nrow(temp) > 0) {
+    temp$Level1 <- 'Equity'
+    temp$Level2 <- 'Intl'
+  }
+  temp <- temp %>%
+    mutate(Level1 = ifelse(Level3=='Other', 'Other', Level1)) %>%
+    mutate(Level2 = ifelse(Level3=='Other', 'Other', Level2))
+  temp <- temp[c('Aladdin ID', 'Level1', 'Level2', 'Level3', 'Level4', 'Level5')]
+  
+  tempAdjItems <- merge(x=tempAdjItems, y=temp,
+                        by.x='Aladdin ID', by.y='Aladdin ID',
+                        all.x=TRUE)
+  
+  if(schema$Level4[schema$AssetClass=='intl']=='Mkt_Cap') {
+    tempAdjItems <- bucketMarketCap(tempAdjItems)
+    tempAdjItems$Level4 <- tempAdjItems$Mkt_Cap
+    tempAdjItems$Level5 <- tempAdjItems$Mkt_Cap
+  } else if(schema$Level4[schema$AssetClass=='intl']=='GICS_1') {
+    tempAdjItems$Level4 <- tempAdjItems$GICS_1
+    tempAdjItems$Level5 <- tempAdjItems$GICS_2
+  }
+  return(tempAdjItems)
+}
+
+setUSAdj <- function(adjItems, schema, supressWarnings) {
+  tempAdjItems <- adjItems[adjItems$assetClass=='US',]
+  
+  if(schema$Level3[schema$AssetClass=='US']=='GICS_1') {
+    tempAdjItems <- tempAdjItems %>%
+      mutate(Level1= ifelse((Country=='US' | Country=='PR'), 'Equity', Level1)) %>%
+      mutate(Level2= ifelse((Country=='US' | Country=='PR'), 'US', Level2)) %>%
+      mutate(Level3= ifelse((Country=='US' | Country=='PR'), GICS_1, Level3)) %>%
+      mutate(Level4= ifelse((Country=='US' | Country=='PR'), GICS_2, Level4))
+    tempAdjItems$Level5 <- tempAdjItems$Level4
+    
+    temp <- adjItems %>% 
+      select('Aladdin ID', Sec_Des, GICS_1, GICS_2)
+    
+    if(!supressWarnings) {
+      missing <- temp[(is.na(temp$GICS_1) | is.na(temp$GICS_2)),]
+      if(nrow(missing)>0) { 
+        print('The following are missing bond attribution data')
+        print('Update the core data file if needed.')
+      }
+    }
+    
+  } else if(schema$Level4[schema$AssetClass=='US']=='GICS_1') { 
+    tempAdjItems <- tempAdjItems %>%
+      mutate(Level1= ifelse((Country=='US' | Country=='PR'), 'Equity', Level1)) %>%
+      mutate(Level2= ifelse((Country=='US' | Country=='PR'), 'US', Level2)) %>%
+      mutate(Level3= ifelse((Country=='US' | Country=='PR'), 'US', Level3)) %>%
+      mutate(Level4= ifelse((Country=='US' | Country=='PR'), GICS_1, Level4)) %>%
+      mutate(Level5= ifelse((Country=='US' | Country=='PR'), GICS_2, Level5))
+    
+    temp <- tempAdjItems %>% 
+      select('Aladdin ID', Sec_Des, GICS_1, GICS_2)
+    
+    if(!supressWarnings) {
+      missing <- temp[(is.na(temp$GICS_1) | is.na(temp$GICS_2)),]
+      missing <- missing[!missing$`Aladdin ID`=='USD_CCASH',]
+      if(nrow(missing)>0) { 
+        print('The following are missing GICS data')
+        print('Update the core data file if needed.')
+        print(missing)
+      }
+    }
+    
+  } else if (schema$Level4[schema$AssetClass=='US']=='Mkt_Cap') {
+    tempAdjItems <- bucketMarketCap(tempAdjItems)
+    tempAdjItems <- tempAdjItems %>%
+      mutate(Level1= ifelse((Country=='US' | Country=='PR'), 'Equity', Level1)) %>%
+      mutate(Level2= ifelse((Country=='US' | Country=='PR'), 'US', Level2)) %>%
+      mutate(Level3= ifelse((Country=='US' | Country=='PR'), 'US', Level3)) %>%
+      mutate(Level4= ifelse((Country=='US' | Country=='PR'), Mkt_Cap, Level4)) %>%
+      mutate(Level5= ifelse((Country=='US' | Country=='PR'), Mkt_Cap, Level5))
+  }
+  return(tempAdjItems)
+}
+
+setBondAdj <- function(adjItems, schema, supressWarnings) {  
+  tempAdjItems <- adjItems[adjItems$assetClass=='bond',]
+  
+  if(schema$Level3[schema$AssetClass=='bonds']=='Sec_Group') {
+    tempAdjItems <- tempAdjItems %>%
+      mutate(Level1= ifelse(assetClass=='bond', 'Fixed Income', Level1)) %>%
+      mutate(Level2= ifelse(assetClass=='bond', 'Fixed Income', Level2)) %>%
+      mutate(Level3= ifelse(assetClass=='bond', Sec_Group, Level3)) %>%
+      mutate(Level4= ifelse(assetClass=='bond', Sec_Type, Level4))
+    tempAdjItems$Level5 <- tempAdjItems$Level4
+    
+    temp <- tempAdjItems %>% 
+      select('Aladdin ID', Sec_Des, Sec_Group, Sec_Type)
+    
+    if(!supressWarnings) {
+      missing <- temp[(is.na(temp$Sec_Group) | is.na(temp$Sec_Type)),]
+      if(nrow(missing)>0) { 
+        print('The following are missing bond attribution data')
+        print('Update the core data file if needed.')
+      }
+    }    
+  } else if (schema$Level3[schema$AssetClass=='bonds']=='Dur') {
+    tempAdjItems <- bucketDuration(tempAdjItems)
+    tempAdjItems$Dur[is.na(tempAdjItems$Dur)] <- '0-2]'
+    tempAdjItems <- tempAdjItems %>%
+      mutate(Level1= ifelse(assetClass=='bond', 'Fixed Income', Level1)) %>%
+      mutate(Level2= ifelse(assetClass=='bond', 'Fixed Income', Level2)) %>%
+      mutate(Level3= ifelse(assetClass=='bond', Dur, Level3)) %>%
+      mutate(Level4= ifelse(assetClass=='bond', Dur, Level4))
+    tempAdjItems$Level5 <- tempAdjItems$Level4
+  }
+  return(tempAdjItems)
+}
+
+setOtherAdj <- function(adjItems, supressWarnings) {  
+  tempAdjItems <- tempAdjItems <- adjItems[adjItems$assetClass=='Other',]
+  
+  tempAdjItems$Level1[tempAdjItems$assetClass=='Other'] <- 'Other'
+  tempAdjItems$Level2[tempAdjItems$assetClass=='Other'] <- 'Other'
+  tempAdjItems$Level3[tempAdjItems$assetClass=='Other'] <- 'Other'
+  tempAdjItems$Level4[tempAdjItems$assetClass=='Other'] <- 'Other'
+  tempAdjItems$Level5 <- tempAdjItems$Level4
+  return(tempAdjItems)
 }
