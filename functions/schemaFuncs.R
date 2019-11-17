@@ -1,4 +1,4 @@
-askDefault <- function() { return(readline(prompt='Would you like to use the default schema (y/n)? '))}
+skDefault <- function() { return(readline(prompt='Would you like to use the default schema (y/n)? '))}
 askEquity <- function() { return(readline(prompt='Choose number for Equity schema: '))}
 askBond <- function() { return(readline(prompt='Choose number for bond schema: '))}
 
